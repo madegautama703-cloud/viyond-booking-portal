@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { masterDb, BookingOrderRecord } from '@/lib/masterDbStore';
 
-// Endpoint 2 Webhook URL from Technical Module: POST /webhook/viyond-web-booking
+// Endpoint 2 Webhook URL from Technical Module: POST /webhook/wa-flows-kyc
 const PRODUCTION_CREATE_BOOKING_WEBHOOK_URL =
   process.env.N8N_CREATE_BOOKING_WEBHOOK_URL ||
   process.env.N8N_WEB_BOOKING_WEBHOOK_URL ||
-  'https://n8n.srv2075779.hstgr.cloud/webhook/viyond-web-booking';
+  'https://n8n.srv2075779.hstgr.cloud/webhook/wa-flows-kyc';
 
 export async function POST(req: NextRequest) {
   const startTime = performance.now();

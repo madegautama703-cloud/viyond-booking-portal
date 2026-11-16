@@ -42,7 +42,7 @@ export function KycContactFields({ vm }: { vm: ShowroomViewModel }) {
           value={vm.fullName}
           onChange={(e) => vm.setFullName(e.target.value)}
           className={fieldCls}
-          placeholder="Alexander Wright"
+          placeholder={vm.lang === 'id' ? 'Nama lengkap sesuai Paspor / KTP' : 'Full name as on Passport / ID'}
         />
       </div>
       <div>
@@ -53,7 +53,10 @@ export function KycContactFields({ vm }: { vm: ShowroomViewModel }) {
             onChange={(e) => vm.setCountryCode(e.target.value)}
             className={`${fieldCls} w-[108px] shrink-0 cursor-pointer`}
           >
-            {COUNTRY_CODES.map((c) => (
+            {(COUNTRY_CODES.some((c) => c.value === vm.countryCode)
+              ? COUNTRY_CODES
+              : [{ value: vm.countryCode, label: vm.countryCode }, ...COUNTRY_CODES]
+            ).map((c) => (
               <option key={c.value} value={c.value}>
                 {c.label}
               </option>
@@ -65,7 +68,7 @@ export function KycContactFields({ vm }: { vm: ShowroomViewModel }) {
             value={vm.whatsappLocal}
             onChange={(e) => vm.setWhatsappLocal(e.target.value)}
             className={fieldCls}
-            placeholder="412 345 678"
+            placeholder="812 345 6789"
           />
         </div>
       </div>
@@ -74,9 +77,15 @@ export function KycContactFields({ vm }: { vm: ShowroomViewModel }) {
         <select
           value={vm.nationality}
           onChange={(e) => vm.setNationality(e.target.value)}
-          className={`${fieldCls} cursor-pointer`}
+          className={`${fieldCls} cursor-pointer ${!vm.nationality ? 'text-[#9CA3AF]' : ''}`}
         >
-          {(NATIONALITIES.includes(vm.nationality) ? NATIONALITIES : [vm.nationality, ...NATIONALITIES]).map((n) => (
+          <option value="" disabled>
+            {vm.lang === 'id' ? 'Pilih Kewarganegaraan' : 'Select Nationality'}
+          </option>
+          {(vm.nationality && !NATIONALITIES.includes(vm.nationality)
+            ? [vm.nationality, ...NATIONALITIES]
+            : NATIONALITIES
+          ).map((n) => (
             <option key={n} value={n}>
               {n}
             </option>

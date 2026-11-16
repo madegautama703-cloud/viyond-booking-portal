@@ -3,7 +3,6 @@
 import React, { useState } from 'react';
 import { motion, useScroll, useMotionValueEvent, type Variants } from 'framer-motion';
 import {
-  ArrowDown,
   Clock,
   HardHat,
   MapPin,
@@ -148,11 +147,6 @@ export function GlobalStickyHeader({ vm }: { vm: ShowroomViewModel }) {
     0
   );
 
-  const scrollToShowroom = () => {
-    const target = document.getElementById('wizard-canvas');
-    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
   return (
     <motion.header
       initial={{ opacity: 0, y: -14 }}
@@ -186,15 +180,6 @@ export function GlobalStickyHeader({ vm }: { vm: ShowroomViewModel }) {
             <span>{lang === 'id' ? 'Lokasi:' : 'Location:'}</span>
             <strong className="font-semibold text-white">Bali, Indonesia</strong>
           </div>
-
-          <button
-            type="button"
-            onClick={scrollToShowroom}
-            className="hidden md:inline-flex items-center gap-1.5 rounded-full bg-white/10 border border-white/10 px-4 py-1.5 text-xs font-semibold text-white hover:bg-white/20 transition-colors cursor-pointer"
-          >
-            <span>{lang === 'id' ? 'Buka Showroom' : 'Open Showroom'}</span>
-            <ArrowDown className="h-3.5 w-3.5" />
-          </button>
 
           <div className="flex items-center rounded-full bg-white/10 border border-white/10 p-0.5">
             {(['en', 'id'] as const).map((code) => (

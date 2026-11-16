@@ -27,7 +27,7 @@ import { UatControlConsole } from '@/components/UatControlConsole';
 import { CameraCaptureModal } from '@/components/CameraCaptureModal';
 import { DesktopShowroom } from '@/components/showroom/DesktopShowroom';
 import { MobileShowroom } from '@/components/showroom/MobileShowroom';
-import { GlobalStickyHeader, HeroLandingCover, HighlightStrip } from '@/components/showroom/HeroLandingCover';
+import { GlobalStickyHeader } from '@/components/showroom/HeroLandingCover';
 import type { KycSlotKey, ShowroomViewModel } from '@/components/showroom/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -159,41 +159,39 @@ export function BookingWizardApp() {
     'Production n8n Webhook (https://n8n.srv2075779.hstgr.cloud/webhook/viyond-live-inventory)'
   );
 
-  // Step 2 State: Renter Contact & 4 KYC Documents
-  const [fullName, setFullName] = useState<string>('Alexander Wright');
-  const [countryCode, setCountryCode] = useState<string>('+61');
-  const [whatsappLocal, setWhatsappLocal] = useState<string>('412 345 678');
-  const [nationality, setNationality] = useState<string>('Australia');
+  // Step 2 State: Renter Contact & 4 KYC Documents (clean production defaults)
+  const [fullName, setFullName] = useState<string>('');
+  const [countryCode, setCountryCode] = useState<string>('+62');
+  const [whatsappLocal, setWhatsappLocal] = useState<string>('');
+  const [nationality, setNationality] = useState<string>('');
   const [pdpAgreed, setPdpAgreed] = useState<boolean>(true);
 
   const [kycDocs, setKycDocs] = useState<Record<string, KycDocSlotState>>({
     passport: {
       id: 'passport',
-      status: 'blurry',
-      fileName: 'passport_scan_glare.jpg',
-      compressedKb: 340,
-      ocrMessage:
-        'Text unreadable due to glare/blur. Please retake photo clearly without flash.',
+      status: 'ready_to_upload',
+      fileName: '',
+      compressedKb: 0,
+      ocrMessage: 'Upload clear Passport / ID Card (KTP) photo',
     },
     selfie: {
       id: 'selfie',
-      status: 'compressing',
-      fileName: 'selfie_passport.jpg',
-      compressedKb: 380,
-      originalKb: 6420,
-      ocrMessage: 'Compressing and Scanning...',
+      status: 'ready_to_upload',
+      fileName: '',
+      compressedKb: 0,
+      ocrMessage: 'Upload selfie holding Passport / ID Card',
     },
     flight: {
       id: 'flight',
-      status: 'verified',
-      fileName: 'qf44_bali_sydney.png',
-      compressedKb: 290,
-      ocrMessage: 'Clear',
+      status: 'ready_to_upload',
+      fileName: '',
+      compressedKb: 0,
+      ocrMessage: 'Upload return flight ticket (PDF or image)',
     },
     hotel: {
       id: 'hotel',
       status: 'ready_to_upload',
-      fileName: 'Upload Agoda / Booking.com / Airbnb PDF or image',
+      fileName: '',
       compressedKb: 0,
       ocrMessage: 'Upload Agoda / Booking.com / Airbnb PDF or image',
     },
@@ -235,11 +233,11 @@ export function BookingWizardApp() {
   );
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [activeOrder, setActiveOrder] = useState<BookingOrderRecord>({
-    orderId: 'ORD-2026-881',
-    createdAt: '2026-05-15T09:42:00+08:00',
-    fullName: 'Alexander Wright',
-    whatsappNumber: '+61 412 345 678',
-    nationality: 'Australia',
+    orderId: 'ORD-NEW',
+    createdAt: '',
+    fullName: '',
+    whatsappNumber: '',
+    nationality: '',
     categoryId: 'nmax',
     categoryName: 'Yamaha NMAX 155',
     startDate: '2026-05-15',
@@ -254,11 +252,10 @@ export function BookingWizardApp() {
     totalAmount: 1000000,
     paymentMethod: 'COD',
     status: 'pending_approval',
-    ocrExtractedName: 'ALEXANDER WRIGHT',
-    ocrExtractedIdNumber: 'PA8934120',
+    ocrExtractedName: '',
+    ocrExtractedIdNumber: '',
     ocrStatus: 'JELAS',
-    whatsappMessagePreview:
-      'Halo Alexander Wright, pesanan sewa Yamaha NMAX 155 Anda dengan ID #ORD-2026-881 telah kami terima. Tim VIYOND sedang memproses pengantaran ke The Haven Suites Canggu — Room 204 pukul 10:00 AM WITA.',
+    whatsappMessagePreview: '',
   });
 
   // Modals / Drawers
@@ -272,11 +269,6 @@ export function BookingWizardApp() {
       sender: 'bot',
       text: 'Om Swastiastu! Welcome to VIYOND AI Concierge & Live Order Tracker. How can I help with your Bali scooter rental today?',
       time: '09:41',
-    },
-    {
-      sender: 'bot',
-      text: 'Halo Alexander Wright, pesanan sewa Yamaha NMAX 155 Anda dengan ID #ORD-2026-881 telah kami terima. Kurir siap mengantar ke The Haven Suites Canggu — Room 204 pukul 10:00 AM WITA.',
-      time: '09:42',
     },
   ]);
 
@@ -764,6 +756,10 @@ export function BookingWizardApp() {
       missing.push('Nomor WhatsApp Aktif (Minimal 5 digit angka)');
     }
 
+    if (!nationality || !nationality.trim()) {
+      missing.push('Kewarganegaraan (Nationality)');
+    }
+
     if (!startDate || !startDate.trim()) {
       missing.push('Tanggal Mulai Sewa (Start Date)');
     }
@@ -785,7 +781,8 @@ export function BookingWizardApp() {
     const isPassportFilled = Boolean(
       passportSlot?.fileName &&
       !passportSlot.fileName.startsWith('Upload ') &&
-      passportSlot.fileName.trim().length > 3
+      passportSlot.fileName.trim().length > 3 &&
+      passportSlot.status !== 'ready_to_upload'
     );
     if (!isPassportFilled) {
       missing.push('Foto Paspor / KTP (Wajib diunggah)');
@@ -902,6 +899,10 @@ export function BookingWizardApp() {
       hotelSlot.fileName.trim(),
     ];
 
+    const formattedWhatsapp = whatsappLocal.trim().startsWith('+')
+      ? whatsappLocal.trim()
+      : `${countryCode} ${whatsappLocal}`.trim();
+
     // Payload strictly matching the required fields and technical module specs (Endpoint 2)
     const bookingPayload = {
       orderId: `ORD-2026-${Math.floor(881 + Math.random() * 110)}`,
@@ -912,8 +913,8 @@ export function BookingWizardApp() {
       plate,
       customerName: fullName.trim(),
       fullName: fullName.trim(),
-      whatsapp: `${countryCode} ${whatsappLocal}`.trim(),
-      whatsappNumber: `${countryCode} ${whatsappLocal}`.trim(),
+      whatsapp: formattedWhatsapp,
+      whatsappNumber: formattedWhatsapp,
       nationality: cleanNationality,
       startDate: startDate.trim(),
       endDate: endDate.trim(),
@@ -1026,7 +1027,7 @@ export function BookingWizardApp() {
         ...prev,
         orderId,
         fullName: fullName.trim(),
-        whatsappNumber: `${countryCode} ${whatsappLocal}`.trim(),
+        whatsappNumber: formattedWhatsapp,
         nationality: cleanNationality,
         categoryId: selectedCategory.id,
         categoryName: selectedCategory.name,
@@ -1175,9 +1176,87 @@ export function BookingWizardApp() {
   const [debugViewOverride, setDebugViewOverride] = useState<'auto' | 'desktop' | 'mobile' | 'board'>('auto');
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      setIsDebugMode(params.get('debug') === 'true');
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    setIsDebugMode(params.get('debug') === 'true');
+
+    // 1. Parse ?wa=... (Customer WhatsApp number from chat link)
+    const waParam = params.get('wa');
+    if (waParam && waParam.trim()) {
+      const cleaned = waParam.trim().replace(/[\s\-()]/g, '');
+      const digitsOnly = cleaned.replace(/[^0-9]/g, '');
+      if (digitsOnly.length >= 5) {
+        // Longest-first international calling codes
+        const knownCodes = [
+          '886', '852', '971', '351', '353', '358', '420', '380',
+          '62', '61', '65', '60', '66', '63', '64', '81', '82', '86', '91',
+          '44', '49', '33', '39', '34', '31', '41', '43', '45', '46', '47', '48',
+          '55', '52', '27', '7', '1',
+        ];
+        let matchedCode: string | null = null;
+        let localPart = digitsOnly;
+
+        if (digitsOnly.startsWith('0')) {
+          matchedCode = '+62';
+          localPart = digitsOnly.slice(1);
+        } else {
+          const found = knownCodes.find((code) => digitsOnly.startsWith(code));
+          if (found) {
+            matchedCode = `+${found}`;
+            localPart = digitsOnly.slice(found.length);
+          }
+        }
+
+        if (matchedCode) {
+          setCountryCode(matchedCode);
+          setWhatsappLocal(localPart);
+          setActiveOrder((prev) => ({
+            ...prev,
+            whatsappNumber: `${matchedCode} ${localPart}`.trim(),
+          }));
+        } else {
+          const intlNumber = `+${digitsOnly}`;
+          setWhatsappLocal(intlNumber);
+          setActiveOrder((prev) => ({
+            ...prev,
+            whatsappNumber: intlNumber,
+          }));
+        }
+      }
+    }
+
+    // 2. Parse ?unit=... (Default scooter category)
+    const unitParam = params.get('unit');
+    if (unitParam && unitParam.trim()) {
+      const normUnit = unitParam.trim().toLowerCase();
+      const matchedCat = VEHICLE_CATEGORIES.find(
+        (cat) =>
+          cat.id.toLowerCase() === normUnit ||
+          cat.name.toLowerCase().includes(normUnit) ||
+          normUnit.includes(cat.id.toLowerCase())
+      );
+      if (matchedCat) {
+        setSelectedCategoryId(matchedCat.id);
+      }
+    }
+
+    // 3. Parse ?zona=... (Default delivery zone)
+    const zonaParam = params.get('zona');
+    if (zonaParam && zonaParam.trim()) {
+      const normZona = zonaParam.trim().toUpperCase();
+      const matchedZone = INITIAL_ZONA_ONGKIR.find(
+        (z) =>
+          z.code.toUpperCase() === normZona ||
+          (z.id && z.id.toUpperCase() === normZona) ||
+          z.code.replace('-', '').toUpperCase() === normZona.replace('-', '') ||
+          (normZona === '1' && z.code === 'ZONA-1') ||
+          (normZona === '2' && z.code === 'ZONA-2') ||
+          (normZona === '3' && z.code === 'ZONA-3') ||
+          (z.coverage && z.coverage.toUpperCase().includes(normZona))
+      );
+      if (matchedZone) {
+        setSelectedZoneId(matchedZone.code);
+      }
     }
   }, []);
 
@@ -1363,17 +1442,13 @@ export function BookingWizardApp() {
         </div>
       )}
 
-      {/* Global Sticky Top Navbar (Single unified header across Hero Cover & Showroom) */}
-      <GlobalStickyHeader vm={vm} />
+      {/* Global Sticky Top Navbar on Desktop only (MobileShowroom has its own native header) */}
+      <div className="hidden lg:block">
+        <GlobalStickyHeader vm={vm} />
+      </div>
 
-      {/* Opening / Hero Landing Page Cover (100vh above Showroom Bento with Framer Motion Initial Reveal) */}
-      <HeroLandingCover vm={vm} />
-
-      {/* Highlight Bento cards: transition strip at top of the light showroom section */}
-      <HighlightStrip vm={vm} />
-
-      {/* Main Responsive Showroom Bento Booking Section */}
-      <div id="wizard-canvas" className="scroll-mt-16">
+      {/* Main Responsive Showroom Bento Booking Section (Direct Portal Dashboard, Hero Cover & Promo bypassed) */}
+      <div id="wizard-canvas" className="scroll-mt-16 lg:pt-20">
         {isDebugMode && debugViewOverride === 'board' ? (
           <div className="mx-auto max-w-[1440px] px-4 py-8">
             <div className="mb-4 flex items-center justify-between">
