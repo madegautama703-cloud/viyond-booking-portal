@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { masterDb, BookingOrderRecord } from '@/lib/masterDbStore';
+import { masterDb } from '@/lib/masterDbStore';
 
-// Endpoint 2 Webhook URL from Technical Module: POST /webhook/wa-flows-kyc
+// Endpoint 2 Webhook URL (Production n8n): POST /webhook/web-booking-kyc
 const PRODUCTION_CREATE_BOOKING_WEBHOOK_URL =
   process.env.N8N_WEBHOOK_URL ||
   process.env.N8N_CREATE_BOOKING_WEBHOOK_URL ||
   process.env.N8N_WEB_BOOKING_WEBHOOK_URL ||
-  'https://n8n.srv2075779.hstgr.cloud/webhook/wa-flows-kyc';
+  'https://n8n.srv2075779.hstgr.cloud/webhook/web-booking-kyc';
 
 export async function POST(req: NextRequest) {
   const startTime = performance.now();
@@ -97,22 +97,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Normalization for Order Details
+  // Normalization check for optional online plate lock on successful n8n response
   const categoryId = String(payload.categoryId || payload.unitId || 'nmax').toLowerCase();
-  const categoryName = String(payload.categoryName || payload.category || 'Yamaha NMAX 155');
-  const hotel = String(payload.hotel || payload.hotelAndRoom || 'Bali Hotel & Villa');
-  const zoneLabel = String(payload.zoneLabel || payload.zone || 'ZONA-2: Area Canggu & Jimbaran');
-  const deliveryTime = String(payload.deliveryTime || '10:00 AM WITA (Morning Delivery)');
-  const durationDays = Number(payload.durationDays) || 7;
-  const rentalSubtotal = Number(payload.rentalSubtotal) || 950000;
-  const deliveryFee = Number(payload.deliveryFee) || 50000;
-  const totalAmount = Number(payload.total || payload.totalAmount) || (rentalSubtotal + deliveryFee);
-  const randomNum = Math.floor(881 + Math.random() * 110);
-  const orderId = String(payload.orderId || `ORD-2026-${randomNum}`);
-
   const rawPm = String(payload.paymentMethod || '').toUpperCase();
   const isOnline = rawPm.includes('ONLINE') || rawPm.includes('INSTANT') || rawPm.includes('QRIS');
-  const isTransfer = rawPm.includes('TRANSFER') || rawPm.includes('MANUAL');
 
   // Log incoming booking request in console
   console.log('[API /api/n8n/create-booking] === INCOMING BOOKING REQUEST ===');
@@ -121,7 +109,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 7000);
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     // Forward request to n8n webhook with cache: 'no-store'
     const n8nResponse = await fetch(PRODUCTION_CREATE_BOOKING_WEBHOOK_URL, {
@@ -154,7 +142,6 @@ export async function POST(req: NextRequest) {
     console.log('[API /api/n8n/create-booking] Data:', JSON.stringify(responseData, null, 2));
 
     if (n8nResponse.ok) {
-      // If n8n successfully handled the booking, also lock the plate in masterDb for consistency
       if (isOnline) {
         masterDb.lockAvailableUnitForOrder(categoryId);
       }
@@ -171,86 +158,53 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(responseData, { status: 422 });
     }
 
-    // If n8n responded with non-200, trigger local fallback
-    console.warn('[API /api/n8n/create-booking] n8n returned non-ok status, falling back to masterDb.');
+    // Return 502 Bad Gateway with original n8n error details (no mock/dummy fallback)
+    const n8nErrorMessage =
+      responseData?.message ||
+      responseData?.error ||
+      rawText ||
+      `n8n webhook responded with HTTP ${n8nResponse.status}`;
+
+    console.error('[API /api/n8n/create-booking] n8n webhook returned error:', n8nResponse.status, n8nErrorMessage);
+
+    return NextResponse.json(
+      {
+        success: false,
+        status: 'bad_gateway',
+        message: `n8n webhook error (HTTP ${n8nResponse.status}): ${n8nErrorMessage}`,
+        error: n8nErrorMessage,
+        upstreamStatus: n8nResponse.status,
+        upstreamResponse: responseData,
+        webhookUrl: PRODUCTION_CREATE_BOOKING_WEBHOOK_URL,
+      },
+      {
+        status: 502,
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        },
+      }
+    );
   } catch (error) {
-    console.warn(
-      '[API /api/n8n/create-booking] Unable to reach external n8n server directly. Executing masterDb fallback:',
-      error instanceof Error ? error.message : error
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(
+      '[API /api/n8n/create-booking] Failed to reach n8n webhook:',
+      errorMessage
+    );
+
+    return NextResponse.json(
+      {
+        success: false,
+        status: 'bad_gateway',
+        message: `Failed to reach n8n webhook: ${errorMessage}`,
+        error: errorMessage,
+        webhookUrl: PRODUCTION_CREATE_BOOKING_WEBHOOK_URL,
+      },
+      {
+        status: 502,
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        },
+      }
     );
   }
-
-  // Graceful Local Fallback: Execute Switch Node logic in Master Database Store
-  let status: BookingOrderRecord['status'] = 'pending_approval';
-  let assignedPlate: string | undefined;
-  let xenditInvoiceUrl: string | undefined;
-
-  // Switch Node: 3 Payment Paths
-  if (isOnline) {
-    // Jalur 1 (Gateway Xendit/Midtrans): Lock plate, generate payment link
-    status = 'paid_locked';
-    assignedPlate = masterDb.lockAvailableUnitForOrder(categoryId) || 'DK 4821 FBV';
-    xenditInvoiceUrl = `https://checkout.xendit.co/web/${orderId.toLowerCase()}`;
-  } else {
-    // Jalur 2 & 3 (Manual Transfer / COD WNA): Pending approval for Owner Telegram Bot
-    status = 'pending_approval';
-    assignedPlate = 'DK 2101 KAA';
-  }
-
-  const whatsappMessagePreview = `Halo ${customerName}, pesanan sewa ${categoryName} (${assignedPlate}) Anda dengan ID #${orderId} telah kami terima di n8n & VIYOND Booking System. Kurir siap mengantar ke ${hotel} pukul ${deliveryTime}. Total: Rp ${totalAmount.toLocaleString('id-ID')}.`;
-
-  const newOrder: BookingOrderRecord = {
-    orderId,
-    createdAt: new Date().toISOString(),
-    fullName: customerName,
-    whatsappNumber: whatsapp,
-    nationality: String(payload.nationality || 'Australia'),
-    categoryId,
-    categoryName,
-    startDate,
-    endDate,
-    durationDays,
-    zoneId: String(payload.zoneId || payload.zone || 'ZONA-2'),
-    zoneLabel,
-    hotelAndRoom: hotel,
-    deliveryTime,
-    rentalSubtotal,
-    deliveryFee,
-    totalAmount,
-    paymentMethod: isOnline ? 'ONLINE' : (isTransfer ? 'TRANSFER' : 'COD'),
-    status,
-    assignedPlate,
-    xenditInvoiceUrl,
-    ocrExtractedName: customerName.toUpperCase(),
-    ocrExtractedIdNumber: 'PA8934120',
-    ocrStatus: 'JELAS',
-    whatsappMessagePreview,
-  };
-
-  // Prepend or update in DATA_PESANAN_KYC
-  masterDb.dataPesananKyc = [
-    newOrder,
-    ...masterDb.dataPesananKyc.filter((o) => o.orderId !== orderId),
-  ];
-
-  return NextResponse.json(
-    {
-      success: true,
-      status: status === 'paid_locked' ? 'invoice_created' : 'pending_approval',
-      orderId,
-      assignedPlate,
-      xenditInvoiceUrl,
-      whatsappMessagePreview,
-      order: newOrder,
-      categories: masterDb.getPublicAggregatedInventory(),
-      inventarisMotor: masterDb.inventarisMotor,
-      source: 'VIYOND Master DB Engine (n8n Local Fallback)',
-    },
-    {
-      status: 200,
-      headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-      },
-    }
-  );
 }

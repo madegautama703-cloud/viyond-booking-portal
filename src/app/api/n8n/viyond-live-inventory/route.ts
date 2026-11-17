@@ -130,16 +130,14 @@ export async function GET(req: NextRequest) {
     // If not a valid absolute URL, leave as is
   }
 
-  let categories = masterDb.getPublicAggregatedInventory();
+  let categories: EnrichedCategory[] = [];
   let zones = masterDb.zonaOngkir;
-  let source = 'Google Sheets (VIYOND - Master DB) via n8n Webhook Node';
-  let isLiveProduction = false;
   let rawIncomingMotors: RawMotorItem[] | null = null;
 
-  // Attempt to pull real live data from Production n8n Webhook
+  // Pull real live data from Production n8n Webhook (no mock/dummy fallback on error)
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
 
     const n8nResponse = await fetch(requestedEndpoint, {
       method: 'GET',
@@ -151,91 +149,115 @@ export async function GET(req: NextRequest) {
     });
     clearTimeout(timeoutId);
 
-    if (n8nResponse.ok) {
-      const rawPayload = await n8nResponse.json();
-
-      // Normalize standard n8n response structures:
-      // 1. { motors: [...] }
-      // 2. [ { motors: [...] } ]
-      // 3. [ { json: { motors: [...] } } ]
-      // 4. Raw array of motors: [ { category: "NMAX", ... } ]
-      // 5. { categories: [...] }
-      let incomingData = rawPayload;
-      if (Array.isArray(rawPayload) && rawPayload.length > 0) {
-        // If raw array of motor items directly
-        if (rawPayload[0].category || rawPayload[0].availableCount !== undefined) {
-          incomingData = { motors: rawPayload };
-        } else {
-          incomingData = rawPayload[0].json || rawPayload[0];
-        }
-      } else if (rawPayload.data) {
-        incomingData = rawPayload.data;
+    const rawText = await n8nResponse.text();
+    let rawPayload: any = {};
+    if (rawText && rawText.trim().length > 0) {
+      try {
+        rawPayload = JSON.parse(rawText);
+      } catch {
+        rawPayload = { message: rawText };
       }
-
-      // 1. Check for { motors: [...] } from "Aggregate Ready Stock" node
-      if (incomingData?.motors && Array.isArray(incomingData.motors)) {
-        rawIncomingMotors = incomingData.motors;
-        if (incomingData.motors.length > 0) {
-          categories = mapMotorsToCategories(incomingData.motors);
-          isLiveProduction = true;
-        }
-      }
-      // 2. Or check for { categories: [...] }
-      else if (incomingData?.categories && Array.isArray(incomingData.categories)) {
-        rawIncomingMotors = incomingData.categories;
-        if (incomingData.categories.length > 0) {
-          categories = mapMotorsToCategories(incomingData.categories);
-          isLiveProduction = true;
-        }
-      }
-
-      if (incomingData?.zones && Array.isArray(incomingData.zones)) {
-        zones = incomingData.zones.map((z: any) => ({
-          code: z.code || 'ZONA-1',
-          name: z.name || `Zona ${z.code}`,
-          coverage: z.coverage || z.areaNames || '',
-          fee: typeof z.fee === 'number' ? z.fee : Number(z.fee) || 0,
-          id: z.id || z.code?.toLowerCase() || 'zona-1',
-          labelEn: z.name || z.labelEn || z.code,
-          labelId: z.name || z.labelId || z.code,
-          areaNames: z.coverage || z.areaNames || '',
-        }));
-      }
-
-      source = `Production n8n Webhook (${requestedEndpoint})`;
     }
-  } catch {
-    // Graceful fallback to masterDb store
-    source = `Google Sheets (VIYOND - Master DB) via n8n Webhook Node (Fallback)`;
+
+    if (!n8nResponse.ok) {
+      const n8nErrorMessage =
+        rawPayload?.message ||
+        rawPayload?.error ||
+        rawText ||
+        `n8n inventory webhook responded with HTTP ${n8nResponse.status}`;
+
+      console.error('[API /api/n8n/viyond-live-inventory] n8n webhook error:', n8nResponse.status, n8nErrorMessage);
+
+      return NextResponse.json(
+        {
+          success: false,
+          status: 'bad_gateway',
+          message: `n8n inventory webhook error (HTTP ${n8nResponse.status}): ${n8nErrorMessage}`,
+          error: n8nErrorMessage,
+          upstreamStatus: n8nResponse.status,
+          upstreamResponse: rawPayload,
+          webhookUrl: requestedEndpoint,
+        },
+        { status: 502 }
+      );
+    }
+
+    // Normalize standard n8n response structures:
+    // 1. { motors: [...] }
+    // 2. [ { motors: [...] } ]
+    // 3. [ { json: { motors: [...] } } ]
+    // 4. Raw array of motors: [ { category: "NMAX", ... } ]
+    // 5. { categories: [...] }
+    let incomingData = rawPayload;
+    if (Array.isArray(rawPayload) && rawPayload.length > 0) {
+      if (rawPayload[0].category || rawPayload[0].availableCount !== undefined) {
+        incomingData = { motors: rawPayload };
+      } else {
+        incomingData = rawPayload[0].json || rawPayload[0];
+      }
+    } else if (rawPayload?.data) {
+      incomingData = rawPayload.data;
+    }
+
+    if (incomingData?.motors && Array.isArray(incomingData.motors)) {
+      rawIncomingMotors = incomingData.motors;
+      categories = mapMotorsToCategories(incomingData.motors);
+    } else if (incomingData?.categories && Array.isArray(incomingData.categories)) {
+      rawIncomingMotors = incomingData.categories;
+      categories = mapMotorsToCategories(incomingData.categories);
+    }
+
+    if (incomingData?.zones && Array.isArray(incomingData.zones)) {
+      zones = incomingData.zones.map((z: any) => ({
+        code: z.code || 'ZONA-1',
+        name: z.name || `Zona ${z.code}`,
+        coverage: z.coverage || z.areaNames || '',
+        fee: typeof z.fee === 'number' ? z.fee : Number(z.fee) || 0,
+        id: z.id || z.code?.toLowerCase() || 'zona-1',
+        labelEn: z.name || z.labelEn || z.code,
+        labelId: z.name || z.labelId || z.code,
+        areaNames: z.coverage || z.areaNames || '',
+      }));
+    }
+
+    const elapsedMs = Math.max(12, Math.round(performance.now() - startTime));
+
+    return NextResponse.json(
+      {
+        status: 'ok',
+        syncedAt: new Date().toISOString(),
+        latencyMs: elapsedMs,
+        source: `Production n8n Webhook (${requestedEndpoint})`,
+        isLiveProduction: true,
+        webhookUrl: requestedEndpoint,
+        categories,
+        zones,
+        motors: rawIncomingMotors,
+      },
+      {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, PATCH, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Accept',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        },
+      }
+    );
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[API /api/n8n/viyond-live-inventory] Failed to reach n8n webhook:', errorMessage);
+
+    return NextResponse.json(
+      {
+        success: false,
+        status: 'bad_gateway',
+        message: `Failed to reach n8n inventory webhook: ${errorMessage}`,
+        error: errorMessage,
+        webhookUrl: requestedEndpoint,
+      },
+      { status: 502 }
+    );
   }
-
-  const elapsedMs = Math.max(12, Math.round(performance.now() - startTime + 25));
-
-  return NextResponse.json(
-    {
-      status: 'ok',
-      syncedAt: new Date().toISOString(),
-      latencyMs: elapsedMs,
-      source,
-      isLiveProduction,
-      webhookUrl: requestedEndpoint,
-      categories,
-      zones,
-      motors: rawIncomingMotors,
-      // Included for the interactive UAT / Telegram Bot Simulator drawer
-      internalSheetPreview: {
-        inventarisMotor: masterDb.inventarisMotor,
-        orders: masterDb.dataPesananKyc,
-      },
-    },
-    {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, PATCH, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Accept',
-      },
-    }
-  );
 }
 
 // Simulates Telegram Bot Staff /stok command or [Tukar Unit / Swap]
