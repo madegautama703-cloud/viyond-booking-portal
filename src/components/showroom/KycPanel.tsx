@@ -104,6 +104,31 @@ export function KycDocumentGrid({
   columns?: 1 | 2;
 }) {
   const { t } = vm;
+
+  if (vm.isExtendMode) {
+    return (
+      <div className="rounded-2xl border border-[#A7F3D0] bg-[#ECFDF5] p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#10B981] text-white">
+            <ShieldCheck className="h-4 w-4" />
+          </div>
+          <div>
+            <div className="text-[13px] font-semibold text-[#065F46]">
+              {vm.lang === 'id'
+                ? `Dokumen KYC Terverifikasi (Order #${vm.extendOrderId})`
+                : `KYC Documents Reused (Order #${vm.extendOrderId})`}
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-[#047857]">
+              {vm.lang === 'id'
+                ? 'Dokumen KTP/Paspor, Selfie, Tiket Penerbangan, dan Hotel menggunakan data dari pesanan sebelumnya. Anda tidak perlu mengunggah ulang.'
+                : 'Passport/ID, Selfie, Flight Ticket, and Hotel documents are automatically reused from your previous order. No re-upload needed.'}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const slots: Array<{ key: KycSlotKey; title: string; cameraLabel: string }> = [
     { key: 'passport', title: t.doc1Title, cameraLabel: vm.lang === 'id' ? 'Kamera' : 'Camera' },
     { key: 'selfie', title: t.doc2Title, cameraLabel: 'Selfie' },
@@ -188,12 +213,18 @@ export function PdpConsent({ vm }: { vm: ShowroomViewModel }) {
 }
 
 export function KycProgress({ vm }: { vm: ShowroomViewModel }) {
-  const pct = Math.round((vm.validatedDocCount / 4) * 100);
+  const pct = vm.isExtendMode ? 100 : Math.round((vm.validatedDocCount / 4) * 100);
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between text-[11px] font-semibold text-[#6B7280]">
-        <span>{vm.t.upload4DocsTitle}</span>
-        <span className="text-[#14171F]">{vm.validatedDocCount}/4</span>
+        <span>
+          {vm.isExtendMode
+            ? (vm.lang === 'id' ? 'Dokumen KYC (Dari Pesanan Sebelumnya)' : 'KYC Documents (From Previous Order)')
+            : vm.t.upload4DocsTitle}
+        </span>
+        <span className="text-[#14171F]">
+          {vm.isExtendMode ? '4/4' : `${vm.validatedDocCount}/4`}
+        </span>
       </div>
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#ECEEF0]">
         <div

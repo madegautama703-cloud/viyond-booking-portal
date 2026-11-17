@@ -43,6 +43,10 @@ export interface ShowroomViewModel {
   t: CopyDictionary;
   siteConfig: SiteConfig;
 
+  // Extend mode (?extend=ORDER_ID)
+  isExtendMode: boolean;
+  extendOrderId: string;
+
   // Wizard navigation
   activeStep: StepNumber;
   goToStep: (step: StepNumber) => void;

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   defaultSiteConfig,
   SiteConfig,
@@ -71,6 +72,10 @@ interface KycDocSlotState {
 }
 
 export function BookingWizardApp() {
+  const searchParams = useSearchParams();
+  const extendOrderId = (searchParams.get('extend') || '').trim();
+  const isExtendMode = Boolean(extendOrderId);
+
   const [lang, setLang] = useState<'en' | 'id'>('en');
   const t = BILINGUAL_COPY[lang];
 
@@ -730,9 +735,11 @@ export function BookingWizardApp() {
   };
 
   // Count validated KYC documents
-  const validatedDocCount = Object.values(kycDocs).filter(
-    (d) => d.status === 'verified' || d.status === 'compressing'
-  ).length;
+  const validatedDocCount = isExtendMode
+    ? 4
+    : Object.values(kycDocs).filter(
+        (d) => d.status === 'verified' || d.status === 'compressing'
+      ).length;
   const isPassportBlurry = kycDocs.passport.status === 'blurry';
 
   // Submit Booking to n8n Endpoint 2 (POST /api/n8n/create-booking)
@@ -744,10 +751,10 @@ export function BookingWizardApp() {
     setBookingSubmissionError(null);
     setValidationErrors([]);
 
-    // 2. Client-side validation: ensure mandatory fields & 4 KYC files are completed
+    // 2. Client-side validation: ensure mandatory fields & 4 KYC files are completed (skip KYC docs in Extend mode)
     const missing: string[] = [];
 
-    if (!fullName || !fullName.trim()) {
+    if (!isExtendMode && (!fullName || !fullName.trim())) {
       missing.push('Nama Lengkap (Customer Name)');
     }
 
@@ -756,7 +763,7 @@ export function BookingWizardApp() {
       missing.push('Nomor WhatsApp Aktif (Minimal 5 digit angka)');
     }
 
-    if (!nationality || !nationality.trim()) {
+    if (!isExtendMode && (!nationality || !nationality.trim())) {
       missing.push('Kewarganegaraan (Nationality)');
     }
 
@@ -776,55 +783,62 @@ export function BookingWizardApp() {
       missing.push('Pilih zona antar terlebih dahulu');
     }
 
-    // Validate 4 Mandatory KYC documents
+    // Validate 4 Mandatory KYC documents (bypassed in Extend mode)
     const passportSlot = kycDocs.passport;
-    const isPassportFilled = Boolean(
-      passportSlot?.fileName &&
-      !passportSlot.fileName.startsWith('Upload ') &&
-      passportSlot.fileName.trim().length > 3 &&
-      passportSlot.status !== 'ready_to_upload'
-    );
-    if (!isPassportFilled) {
-      missing.push('Foto Paspor / KTP (Wajib diunggah)');
-    }
-
     const selfieSlot = kycDocs.selfie;
-    const isSelfieFilled = Boolean(
-      selfieSlot?.fileName &&
-      !selfieSlot.fileName.startsWith('Upload ') &&
-      selfieSlot.fileName.trim().length > 3 &&
-      selfieSlot.status !== 'ready_to_upload'
-    );
-    if (!isSelfieFilled) {
-      missing.push('Foto Selfie dengan Paspor / KTP (Wajib diunggah)');
-    }
-
     const flightSlot = kycDocs.flight;
-    const isFlightFilled = Boolean(
-      flightSlot?.fileName &&
-      !flightSlot.fileName.startsWith('Upload ') &&
-      flightSlot.fileName.trim().length > 3 &&
-      flightSlot.status !== 'ready_to_upload'
-    );
-    if (!isFlightFilled) {
-      missing.push('Tiket Penerbangan Pulang / Return Flight Ticket (Wajib diunggah)');
-    }
-
     const hotelSlot = kycDocs.hotel;
-    const isHotelFilled = Boolean(
-      hotelSlot?.fileName &&
-      !hotelSlot.fileName.startsWith('Upload ') &&
-      hotelSlot.fileName.trim().length > 3 &&
-      hotelSlot.status !== 'ready_to_upload'
-    );
-    if (!isHotelFilled) {
-      missing.push('Bukti Booking Hotel / Villa di Bali (Wajib diunggah)');
+
+    if (!isExtendMode) {
+      const isPassportFilled = Boolean(
+        passportSlot?.fileName &&
+        !passportSlot.fileName.startsWith('Upload ') &&
+        passportSlot.fileName.trim().length > 3 &&
+        passportSlot.status !== 'ready_to_upload'
+      );
+      if (!isPassportFilled) {
+        missing.push('Foto Paspor / KTP (Wajib diunggah)');
+      }
+
+      const isSelfieFilled = Boolean(
+        selfieSlot?.fileName &&
+        !selfieSlot.fileName.startsWith('Upload ') &&
+        selfieSlot.fileName.trim().length > 3 &&
+        selfieSlot.status !== 'ready_to_upload'
+      );
+      if (!isSelfieFilled) {
+        missing.push('Foto Selfie dengan Paspor / KTP (Wajib diunggah)');
+      }
+
+      const isFlightFilled = Boolean(
+        flightSlot?.fileName &&
+        !flightSlot.fileName.startsWith('Upload ') &&
+        flightSlot.fileName.trim().length > 3 &&
+        flightSlot.status !== 'ready_to_upload'
+      );
+      if (!isFlightFilled) {
+        missing.push('Tiket Penerbangan Pulang / Return Flight Ticket (Wajib diunggah)');
+      }
+
+      const isHotelFilled = Boolean(
+        hotelSlot?.fileName &&
+        !hotelSlot.fileName.startsWith('Upload ') &&
+        hotelSlot.fileName.trim().length > 3 &&
+        hotelSlot.status !== 'ready_to_upload'
+      );
+      if (!isHotelFilled) {
+        missing.push('Bukti Booking Hotel / Villa di Bali (Wajib diunggah)');
+      }
     }
 
     // Stop immediately if any mandatory field is missing
     if (missing.length > 0) {
       setValidationErrors(missing);
-      setBookingSubmissionError('Mohon lengkapi seluruh data wajib dan 4 dokumen KYC berikut sebelum mengirim.');
+      setBookingSubmissionError(
+        isExtendMode
+          ? 'Mohon lengkapi nomor WhatsApp, tanggal perpanjangan, dan zona pengantaran.'
+          : 'Mohon lengkapi seluruh data wajib dan 4 dokumen KYC berikut sebelum mengirim.'
+      );
       return;
     }
 
@@ -891,31 +905,38 @@ export function BookingWizardApp() {
     };
     const cleanPaymentMethod = getCleanPaymentMethod(paymentMethod);
 
-    // 4 KYC file names array (only file names, guaranteed to be real non-empty names)
-    const kycFiles = [
-      passportSlot.fileName.trim(),
-      selfieSlot.fileName.trim(),
-      flightSlot.fileName.trim(),
-      hotelSlot.fileName.trim(),
-    ];
+    // 4 KYC file names array (empty in Extend mode when reusing previous KYC)
+    const kycFiles = isExtendMode
+      ? []
+      : [
+          passportSlot.fileName.trim(),
+          selfieSlot.fileName.trim(),
+          flightSlot.fileName.trim(),
+          hotelSlot.fileName.trim(),
+        ];
 
     const formattedWhatsapp = whatsappLocal.trim().startsWith('+')
       ? whatsappLocal.trim()
       : `${countryCode} ${whatsappLocal}`.trim();
 
+    const resolvedCustomerName =
+      fullName.trim() || (isExtendMode ? `Extend #${extendOrderId}` : '');
+
     // Payload strictly matching the required fields and technical module specs (Endpoint 2)
     const bookingPayload = {
       orderId: `ORD-2026-${Math.floor(881 + Math.random() * 110)}`,
+      is_extend: isExtendMode,
+      parent_order_id: isExtendMode ? extendOrderId : null,
       unitId,
       category,
       categoryId: selectedCategory.id,
       categoryName: selectedCategory.name,
       plate,
-      customerName: fullName.trim(),
-      fullName: fullName.trim(),
+      customerName: resolvedCustomerName,
+      fullName: resolvedCustomerName,
       whatsapp: formattedWhatsapp,
       whatsappNumber: formattedWhatsapp,
-      nationality: cleanNationality,
+      nationality: cleanNationality || 'Indonesia',
       startDate: startDate.trim(),
       endDate: endDate.trim(),
       durationDays: rentalDays,
@@ -930,7 +951,7 @@ export function BookingWizardApp() {
       total: priceBreakdown.totalAmount,
       totalAmount: priceBreakdown.totalAmount,
       paymentMethod: cleanPaymentMethod,
-      idCardStatus: kycDocs.passport.status,
+      idCardStatus: isExtendMode ? 'verified' : kycDocs.passport.status,
       id_card_image: kycDocs.passport.base64Data || undefined,
       kycFiles,
       kycDocuments: {
@@ -1176,12 +1197,10 @@ export function BookingWizardApp() {
   const [debugViewOverride, setDebugViewOverride] = useState<'auto' | 'desktop' | 'mobile' | 'board'>('auto');
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const params = new URLSearchParams(window.location.search);
-    setIsDebugMode(params.get('debug') === 'true');
+    setIsDebugMode(searchParams.get('debug') === 'true');
 
     // 1. Parse ?wa=... (Customer WhatsApp number from chat link)
-    const waParam = params.get('wa');
+    const waParam = searchParams.get('wa');
     if (waParam && waParam.trim()) {
       const cleaned = waParam.trim().replace(/[\s\-()]/g, '');
       const digitsOnly = cleaned.replace(/[^0-9]/g, '');
@@ -1226,7 +1245,7 @@ export function BookingWizardApp() {
     }
 
     // 2. Parse ?unit=... (Default scooter category)
-    const unitParam = params.get('unit');
+    const unitParam = searchParams.get('unit');
     if (unitParam && unitParam.trim()) {
       const normUnit = unitParam.trim().toLowerCase();
       const matchedCat = VEHICLE_CATEGORIES.find(
@@ -1241,7 +1260,7 @@ export function BookingWizardApp() {
     }
 
     // 3. Parse ?zona=... (Default delivery zone)
-    const zonaParam = params.get('zona');
+    const zonaParam = searchParams.get('zona');
     if (zonaParam && zonaParam.trim()) {
       const normZona = zonaParam.trim().toUpperCase();
       const matchedZone = INITIAL_ZONA_ONGKIR.find(
@@ -1258,7 +1277,7 @@ export function BookingWizardApp() {
         setSelectedZoneId(matchedZone.code);
       }
     }
-  }, []);
+  }, [searchParams]);
 
   const openCamera = (slotKey: KycSlotKey) => {
     const titleMap: Record<KycSlotKey, string> = {
@@ -1284,6 +1303,8 @@ export function BookingWizardApp() {
     setLang,
     t,
     siteConfig,
+    isExtendMode,
+    extendOrderId,
     activeStep,
     goToStep,
     startDate,
@@ -1449,6 +1470,19 @@ export function BookingWizardApp() {
 
       {/* Main Responsive Showroom Bento Booking Section (Direct Portal Dashboard, Hero Cover & Promo bypassed) */}
       <div id="wizard-canvas" className="scroll-mt-16 lg:pt-20">
+        {isExtendMode && (
+          <div className="mx-auto max-w-[1440px] px-4 pt-4 lg:px-8 xl:px-12">
+            <Alert className="rounded-2xl border-[#A7F3D0] bg-[#ECFDF5] text-[#065F46] shadow-sm">
+              <Clock className="h-4 w-4 text-[#10B981]" />
+              <AlertTitle className="font-bold text-[#065F46]">
+                Mode Perpanjangan Sewa untuk Order #{extendOrderId}
+              </AlertTitle>
+              <AlertDescription className="text-[#047857]">
+                Anda tidak perlu mengunggah ulang dokumen KTP/Selfie, cukup pilih tambahan durasi sewa dan metode pembayaran.
+              </AlertDescription>
+            </Alert>
+          </div>
+        )}
         {isDebugMode && debugViewOverride === 'board' ? (
           <div className="mx-auto max-w-[1440px] px-4 py-8">
             <div className="mb-4 flex items-center justify-between">
