@@ -1039,7 +1039,12 @@ export function BookingWizardApp() {
       // Success handling: capture orderId, locked plate, and payment link from n8n response
       const orderId = data.orderId || data.order?.orderId || `ORD-${Date.now()}`;
       const status = data.status || data.order?.status || 'PENDING';
-      const assignedPlate = data.assignedPlate || data.order?.assignedPlate || plate;
+      const normalizedStatus = String(status).trim().toLowerCase();
+      const isPendingStatus =
+        normalizedStatus === 'pending' || normalizedStatus === 'pending_approval';
+      const assignedPlate = isPendingStatus
+        ? 'Menunggu Alokasi Unit'
+        : data.assignedPlate || data.order?.assignedPlate || plate;
       const xenditInvoiceUrl = data.xenditInvoiceUrl || data.order?.xenditInvoiceUrl;
       const waPreview =
         data.whatsappMessagePreview ||

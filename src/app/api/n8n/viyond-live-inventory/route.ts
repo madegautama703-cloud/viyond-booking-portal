@@ -139,11 +139,16 @@ export async function GET(req: NextRequest) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
 
+    const webhookHeaders: Record<string, string> = {
+      Accept: 'application/json',
+    };
+    if (process.env.N8N_WEBHOOK_SECRET) {
+      webhookHeaders['x-viyond-secret'] = process.env.N8N_WEBHOOK_SECRET;
+    }
+
     const n8nResponse = await fetch(requestedEndpoint, {
       method: 'GET',
-      headers: {
-        Accept: 'application/json',
-      },
+      headers: webhookHeaders,
       cache: 'no-store',
       signal: controller.signal,
     });

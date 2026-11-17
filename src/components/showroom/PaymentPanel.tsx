@@ -128,7 +128,16 @@ export function SubmissionFeedback({ vm }: { vm: ShowroomViewModel }) {
           </div>
           <p className="mt-1 text-[12px] text-[#065F46]/80">
             #{vm.submittedOrderId} · {vm.submittedOrderStatus}
-            {vm.activeOrder.assignedPlate ? ` · ${vm.activeOrder.assignedPlate}` : ''}
+            {(() => {
+              const st = String(vm.submittedOrderStatus || vm.activeOrder.status || '')
+                .trim()
+                .toLowerCase();
+              const isPending = st === 'pending' || st === 'pending_approval';
+              const plateLabel = isPending
+                ? 'Menunggu Alokasi Unit'
+                : vm.activeOrder.assignedPlate;
+              return plateLabel ? ` · ${plateLabel}` : '';
+            })()}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             {vm.activeOrder.xenditInvoiceUrl && (

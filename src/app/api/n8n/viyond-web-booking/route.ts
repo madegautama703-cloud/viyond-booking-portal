@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
     } else {
       // Jalur 2 & 3 (Transfer Manual / COD WNA): Kirim notifikasi persetujuan ke Grup Telegram Owner
       status = 'pending_approval';
-      assignedPlate = 'DK 2101 KAA';
+      assignedPlate = 'Menunggu Alokasi Unit';
     }
 
     const whatsappMessagePreview = `Halo ${fullName}, pesanan sewa ${categoryName} (${assignedPlate}) Anda dengan ID #${orderId} telah kami terima. Pengantaran dijadwalkan ke ${hotelAndRoom} (${zoneLabel}) pada ${deliveryTime}. Total: Rp ${Number(totalAmount).toLocaleString('id-ID')}.`;

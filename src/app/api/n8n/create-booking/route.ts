@@ -111,13 +111,18 @@ export async function POST(req: NextRequest) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 
+    const webhookHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
+    if (process.env.N8N_WEBHOOK_SECRET) {
+      webhookHeaders['x-viyond-secret'] = process.env.N8N_WEBHOOK_SECRET;
+    }
+
     // Forward request to n8n webhook with cache: 'no-store'
     const n8nResponse = await fetch(PRODUCTION_CREATE_BOOKING_WEBHOOK_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
+      headers: webhookHeaders,
       cache: 'no-store',
       body: JSON.stringify(payload),
       signal: controller.signal,
@@ -145,6 +150,22 @@ export async function POST(req: NextRequest) {
       if (isOnline) {
         masterDb.lockAvailableUnitForOrder(categoryId);
       }
+
+      // Hide temporary/random plate number while order is still PENDING / pending_approval
+      const responseStatus = String(
+        responseData?.status || responseData?.order?.status || 'PENDING'
+      )
+        .trim()
+        .toLowerCase();
+      if (responseStatus === 'pending' || responseStatus === 'pending_approval') {
+        if (responseData && typeof responseData === 'object') {
+          responseData.assignedPlate = 'Menunggu Alokasi Unit';
+          if (responseData.order && typeof responseData.order === 'object') {
+            responseData.order.assignedPlate = 'Menunggu Alokasi Unit';
+          }
+        }
+      }
+
       return NextResponse.json(responseData, {
         status: 200,
         headers: {
