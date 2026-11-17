@@ -3,6 +3,7 @@ import { masterDb, BookingOrderRecord } from '@/lib/masterDbStore';
 
 // Endpoint 2 Webhook URL from Technical Module: POST /webhook/wa-flows-kyc
 const PRODUCTION_CREATE_BOOKING_WEBHOOK_URL =
+  process.env.N8N_WEBHOOK_URL ||
   process.env.N8N_CREATE_BOOKING_WEBHOOK_URL ||
   process.env.N8N_WEB_BOOKING_WEBHOOK_URL ||
   'https://n8n.srv2075779.hstgr.cloud/webhook/wa-flows-kyc';
@@ -136,17 +137,14 @@ export async function POST(req: NextRequest) {
     clearTimeout(timeoutId);
 
     const elapsedMs = Math.round(performance.now() - startTime);
-    const contentType = n8nResponse.headers.get('content-type') || '';
+    const rawText = await n8nResponse.text();
 
-    let responseData: any = null;
-    if (contentType.includes('application/json')) {
-      responseData = await n8nResponse.json();
-    } else {
-      const text = await n8nResponse.text();
+    let responseData: any = {};
+    if (rawText && rawText.trim().length > 0) {
       try {
-        responseData = JSON.parse(text);
+        responseData = JSON.parse(rawText);
       } catch {
-        responseData = { message: text };
+        responseData = { message: rawText };
       }
     }
 

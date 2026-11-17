@@ -161,7 +161,7 @@ export function BookingWizardApp() {
   const [isSyncingStock, setIsSyncingStock] = useState<boolean>(false);
   const [lastSyncLatencyMs, setLastSyncLatencyMs] = useState<number>(38);
   const [syncSource, setSyncSource] = useState<string>(
-    'Production n8n Webhook (https://n8n.srv2075779.hstgr.cloud/webhook/viyond-live-inventory)'
+    'VIYOND API Proxy (/api/n8n/viyond-live-inventory)'
   );
 
   // Step 2 State: Renter Contact & 4 KYC Documents (clean production defaults)
@@ -304,28 +304,20 @@ export function BookingWizardApp() {
       const activeStart = overrideStart !== undefined ? overrideStart : startDate;
       const activeEnd = overrideEnd !== undefined ? overrideEnd : endDate;
 
-      const baseEndpoint =
-        process.env.NEXT_PUBLIC_N8N_GET_INVENTORY_WEBHOOK_URL ||
-        siteConfig.n8nGetInventoryEndpoint ||
-        'https://n8n.srv2075779.hstgr.cloud/webhook/viyond-live-inventory';
-
-      // Attach date query parameters
       const dateParams = new URLSearchParams();
       if (activeStart) dateParams.set('startDate', activeStart);
       if (activeEnd) dateParams.set('endDate', activeEnd);
       const dateQueryStr = dateParams.toString() ? `?${dateParams.toString()}` : '';
 
-      const n8nEndpoint = baseEndpoint.includes('?')
-        ? `${baseEndpoint}&${dateParams.toString()}`
-        : `${baseEndpoint}${dateQueryStr}`;
+      const proxyUrl = `/api/n8n/viyond-live-inventory${dateQueryStr}`;
 
       let rawData: any = null;
       let latencyMs = 0;
-      let syncSourceLabel = `n8n Webhook (${baseEndpoint})`;
+      let syncSourceLabel = 'VIYOND API Proxy (/api/n8n/viyond-live-inventory)';
 
-      // 1. Eksekusi GET request ke process.env.NEXT_PUBLIC_N8N_GET_INVENTORY_WEBHOOK_URL
+      // Eksekusi GET request melalui internal Next.js API Route (hindari CORS browser)
       try {
-        const directRes = await fetch(n8nEndpoint, {
+        const proxyRes = await fetch(proxyUrl, {
           method: 'GET',
           headers: {
             Accept: 'application/json',
@@ -333,41 +325,13 @@ export function BookingWizardApp() {
           cache: 'no-store',
         });
 
-        if (directRes.ok) {
-          rawData = await directRes.json();
-          latencyMs = Math.round(performance.now() - startTime);
-          syncSourceLabel = `Production n8n Webhook (${baseEndpoint})`;
+        if (proxyRes.ok) {
+          rawData = await proxyRes.json();
+          latencyMs = rawData.latencyMs || Math.round(performance.now() - startTime);
+          syncSourceLabel = rawData.source || 'VIYOND API Proxy (/api/n8n/viyond-live-inventory)';
         }
-      } catch (directErr) {
-        // Direct browser fetch bisa gagal karena CORS preflight / network limitation pada browser klien
-        console.warn(
-          '[n8n Live Inventory] Direct GET fetch failed (likely browser CORS), switching to Next.js API proxy fallback:',
-          directErr
-        );
-      }
-
-      // 2. Jika direct GET tidak merespons (misal diblokir CORS pada browser), gunakan API proxy backend Next.js
-      if (!rawData) {
-        try {
-          const proxyUrl = `/api/n8n/viyond-live-inventory?endpoint=${encodeURIComponent(
-            baseEndpoint
-          )}${activeStart ? `&startDate=${encodeURIComponent(activeStart)}` : ''}${activeEnd ? `&endDate=${encodeURIComponent(activeEnd)}` : ''}`;
-          const proxyRes = await fetch(proxyUrl, {
-            method: 'GET',
-            headers: {
-              Accept: 'application/json',
-            },
-            cache: 'no-store',
-          });
-
-          if (proxyRes.ok) {
-            rawData = await proxyRes.json();
-            latencyMs = rawData.latencyMs || Math.round(performance.now() - startTime);
-            syncSourceLabel = rawData.source || `n8n Proxy (${baseEndpoint})`;
-          }
-        } catch (proxyErr) {
-          console.error('[n8n Live Inventory] Proxy fallback failed:', proxyErr);
-        }
+      } catch (proxyErr) {
+        console.error('[n8n Live Inventory] API Proxy fetch failed:', proxyErr);
       }
 
       // 3. Ekstraksi dan perbarui angka ketersediaan unit ('Available Units') di kartu katalog motor berdasarkan JSON
@@ -985,7 +949,7 @@ export function BookingWizardApp() {
     console.log('[VIYOND Create Booking] Request payload sent to /api/n8n/create-booking:', bookingPayload);
 
     try {
-      const res = await fetch(siteConfig.n8nPostBookingEndpoint || '/api/n8n/create-booking', {
+      const res = await fetch('/api/n8n/create-booking', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bookingPayload),

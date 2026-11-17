@@ -37,13 +37,9 @@ export const defaultSiteConfig: SiteConfig = {
   secondaryColor: '#0a1d45',
   accentColor: '#2f7bff',
   whatsappNumber: '6281239998877',
-  // Production Webhook GET n8n
-  n8nGetInventoryEndpoint:
-    process.env.NEXT_PUBLIC_N8N_GET_INVENTORY_WEBHOOK_URL ||
-    'https://n8n.srv2075779.hstgr.cloud/webhook/viyond-live-inventory',
-  n8nPostBookingEndpoint:
-    process.env.NEXT_PUBLIC_N8N_CREATE_BOOKING_WEBHOOK_URL ||
-    'https://n8n.srv2075779.hstgr.cloud/webhook/wa-flows-kyc',
+  // Internal Next.js API proxy routes (avoids browser CORS / Safari preflight errors)
+  n8nGetInventoryEndpoint: '/api/n8n/viyond-live-inventory',
+  n8nPostBookingEndpoint: '/api/n8n/create-booking',
   googleMapsLocation: 'https://maps.google.com/?q=-8.6500,115.1333',
   usdExchangeRate: 15625, // Rp 1.000.000 ≈ 64 USD
   isShowcaseMode: true,
@@ -59,7 +55,7 @@ export const clientPresets: Record<string, SiteConfig> = {
     secondaryColor: '#0f172a',
     accentColor: '#38bdf8',
     whatsappNumber: '6281999112233',
-    n8nGetInventoryEndpoint: 'https://n8n.srv2075779.hstgr.cloud/webhook/viyond-live-inventory',
+    n8nGetInventoryEndpoint: '/api/n8n/viyond-live-inventory',
     n8nPostBookingEndpoint: '/api/n8n/create-booking',
     googleMapsLocation: 'https://maps.google.com/?q=-8.6478,115.1385',
     usdExchangeRate: 15625,
@@ -73,7 +69,7 @@ export const clientPresets: Record<string, SiteConfig> = {
     secondaryColor: '#0369a1',
     accentColor: '#7dd3fc',
     whatsappNumber: '6281333445566',
-    n8nGetInventoryEndpoint: 'https://n8n.srv2075779.hstgr.cloud/webhook/viyond-live-inventory',
+    n8nGetInventoryEndpoint: '/api/n8n/viyond-live-inventory',
     n8nPostBookingEndpoint: '/api/n8n/create-booking',
     googleMapsLocation: 'https://maps.google.com/?q=-8.8149,115.0884',
     usdExchangeRate: 15625,
