@@ -28,10 +28,15 @@ export interface ShowroomCategory extends VehicleCategory {
 
 export interface ShowroomKycDoc {
   id: KycSlotKey;
-  status: 'blurry' | 'compressing' | 'verified' | 'ready_to_upload';
+  status: 'blurry' | 'compressing' | 'verifying' | 'verified' | 'rejected' | 'ready_to_upload';
   fileName: string;
   compressedKb: number;
   ocrMessage: string;
+  extractedData?: {
+    nama?: string;
+    nomor_id?: string;
+    negara?: string;
+  };
 }
 
 export type CopyDictionary = (typeof BILINGUAL_COPY)[keyof typeof BILINGUAL_COPY];
@@ -87,6 +92,7 @@ export interface ShowroomViewModel {
   setPdpAgreed: (v: boolean) => void;
   kycDocs: Record<string, ShowroomKycDoc>;
   validatedDocCount: number;
+  canProceedToPayment: boolean;
   openCamera: (slot: KycSlotKey) => void;
   openFilePicker: (slot: KycSlotKey) => void;
 

@@ -562,8 +562,9 @@ function MobileDetailSheet({ vm }: { vm: ShowroomViewModel }) {
               </button>
               <button
                 type="button"
+                disabled={!vm.canProceedToPayment}
                 onClick={() => vm.goToStep(3)}
-                className={`rounded-full px-3 py-1 text-[11px] font-semibold cursor-pointer ${
+                className={`rounded-full px-3 py-1 text-[11px] font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
                   activeStep === 3 ? 'bg-[#14171F] text-white' : 'text-[#6B7280]'
                 }`}
               >

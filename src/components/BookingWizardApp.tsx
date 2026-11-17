@@ -61,7 +61,7 @@ interface EnrichedCategory extends VehicleCategory {
 
 interface KycDocSlotState {
   id: 'passport' | 'selfie' | 'flight' | 'hotel';
-  status: 'blurry' | 'compressing' | 'verified' | 'ready_to_upload';
+  status: 'blurry' | 'compressing' | 'verifying' | 'verified' | 'rejected' | 'ready_to_upload';
   fileName: string;
   compressedKb: number;
   originalKb?: number;
@@ -69,6 +69,11 @@ interface KycDocSlotState {
   ocrNumber?: string;
   ocrMessage: string;
   base64Data?: string;
+  extractedData?: {
+    nama?: string;
+    nomor_id?: string;
+    negara?: string;
+  };
 }
 
 export function BookingWizardApp() {
@@ -96,13 +101,20 @@ export function BookingWizardApp() {
   }, [isShowcase]);
 
   const goToStep = (step: 1 | 2 | 3) => {
-    setActiveStep(step);
+    const kycAllVerified =
+      isExtendMode ||
+      (['passport', 'selfie', 'flight', 'hotel'] as const).every(
+        (key) => kycDocs[key]?.status === 'verified'
+      );
+    const targetStep: 1 | 2 | 3 = step === 3 && !kycAllVerified ? 2 : step;
+
+    setActiveStep(targetStep);
     if (typeof window !== 'undefined') {
       if (isShowcase && viewMode === 'board' && window.innerWidth >= 768) {
         const id =
-          step === 1
+          targetStep === 1
             ? 'step-1-screen'
-            : step === 2
+            : targetStep === 2
             ? 'step-2-container'
             : 'step-3-screen';
         const el = document.getElementById(id);
@@ -511,42 +523,109 @@ export function BookingWizardApp() {
     siteConfig.usdExchangeRate
   );
 
+  // Real-time AI Vision OCR verification for any uploaded or captured KYC document
+  const verifyKycDocument = async (
+    slotId: 'passport' | 'selfie' | 'flight' | 'hotel',
+    compressed: CompressedImageResult
+  ) => {
+    setKycDocs((prev) => ({
+      ...prev,
+      [slotId]: {
+        ...prev[slotId],
+        id: slotId,
+        status: 'verifying',
+        fileName: compressed.fileName,
+        compressedKb: compressed.compressedSizeKb,
+        originalKb: compressed.originalSizeKb,
+        base64Data: compressed.base64DataUrl,
+        ocrMessage: 'Memeriksa AI...',
+      },
+    }));
+
+    try {
+      const docType = slotId === 'flight' ? 'ticket' : slotId;
+      const ocrRes = await fetch('/api/verify-kyc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: compressed.base64DataUrl,
+          docType,
+        }),
+      });
+
+      const ocrData = await ocrRes.json();
+
+      if (ocrRes.ok && ocrData.valid === true) {
+        setKycDocs((prev) => ({
+          ...prev,
+          [slotId]: {
+            id: slotId,
+            status: 'verified',
+            fileName: compressed.fileName,
+            compressedKb: compressed.compressedSizeKb,
+            originalKb: compressed.originalSizeKb,
+            base64Data: compressed.base64DataUrl,
+            extractedData: ocrData.extractedData,
+            ocrName: ocrData.extractedData?.nama || prev[slotId]?.ocrName,
+            ocrNumber: ocrData.extractedData?.nomor_id || prev[slotId]?.ocrNumber,
+            ocrMessage: ocrData.reason || 'Terverifikasi oleh AI',
+          },
+        }));
+        setBookingFeedbackError(null);
+        setBookingSubmissionError(null);
+      } else {
+        setKycDocs((prev) => ({
+          ...prev,
+          [slotId]: {
+            id: slotId,
+            status: 'rejected',
+            fileName: compressed.fileName,
+            compressedKb: compressed.compressedSizeKb,
+            originalKb: compressed.originalSizeKb,
+            base64Data: compressed.base64DataUrl,
+            extractedData: undefined,
+            ocrMessage:
+              ocrData.reason ||
+              ocrData.error ||
+              'Dokumen tidak valid. Silakan unggah ulang foto yang jelas.',
+          },
+        }));
+      }
+    } catch (err) {
+      setKycDocs((prev) => ({
+        ...prev,
+        [slotId]: {
+          ...prev[slotId],
+          id: slotId,
+          status: 'rejected',
+          fileName: compressed.fileName,
+          compressedKb: compressed.compressedSizeKb,
+          originalKb: compressed.originalSizeKb,
+          base64Data: compressed.base64DataUrl,
+          extractedData: undefined,
+          ocrMessage:
+            err instanceof Error
+              ? `Gagal memeriksa dokumen: ${err.message}`
+              : 'Gagal memeriksa dokumen dengan AI. Silakan coba unggah ulang.',
+        },
+      }));
+    }
+  };
+
   // Handle camera capture result
   const handleCameraCaptureComplete = async (
     slotKey: string,
     result: CompressedImageResult
   ) => {
-    if (slotKey === 'passport') {
-      setKycDocs((prev) => ({
-        ...prev,
-        passport: {
-          id: 'passport',
-          status: 'verified',
-          fileName: result.fileName,
-          compressedKb: result.compressedSizeKb,
-          originalKb: result.originalSizeKb,
-          base64Data: result.base64DataUrl,
-          ocrName: fullName.toUpperCase(),
-          ocrNumber: 'PA8934120',
-          ocrMessage: `AI OCR: JELAS (PA8934120) — Verified via Camera (${result.compressedSizeKb} KB)`,
-        },
-      }));
-      setBookingFeedbackError(null);
-      setBookingSubmissionError(null);
-    } else {
-      setKycDocs((prev) => ({
-        ...prev,
-        [slotKey]: {
-          ...prev[slotKey],
-          status: 'verified',
-          fileName: result.fileName,
-          compressedKb: result.compressedSizeKb,
-          originalKb: result.originalSizeKb,
-          base64Data: result.base64DataUrl,
-          ocrMessage: `Verified Ready (${result.compressedSizeKb} KB)`,
-        },
-      }));
-    }
+    const validSlot = (
+      slotKey === 'passport' ||
+      slotKey === 'selfie' ||
+      slotKey === 'flight' ||
+      slotKey === 'hotel'
+        ? slotKey
+        : 'passport'
+    ) as 'passport' | 'selfie' | 'flight' | 'hotel';
+    await verifyKycDocument(validSlot, result);
   };
 
   // Handle file upload + client-side compression (<500KB) + AI Vision OCR
@@ -558,72 +637,25 @@ export function BookingWizardApp() {
       ...prev,
       [slotId]: {
         ...prev[slotId],
-        status: 'compressing',
+        status: 'verifying',
         fileName: file.name,
-        ocrMessage: 'Compressing in browser (<500KB) & running AI Vision OCR...',
+        ocrMessage: 'Memeriksa AI...',
       },
     }));
 
     try {
       const compressed = await compressImageClientSide(file);
-      if (slotId === 'passport') {
-        const ocrRes = await fetch('/api/verify-kyc', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            imageBase64: compressed.base64DataUrl,
-            mimeType: compressed.mimeType,
-            documentType: 'Passport / ID Card (KTP)',
-          }),
-        });
-        const ocrData = await ocrRes.json();
-        const isClear = ocrData.isClear !== false && ocrData.status_kejelasan_foto !== 'BURAM';
-
-        setKycDocs((prev) => ({
-          ...prev,
-          passport: {
-            id: 'passport',
-            status: isClear ? 'verified' : 'blurry',
-            fileName: compressed.fileName,
-            compressedKb: compressed.compressedSizeKb,
-            originalKb: compressed.originalSizeKb,
-            base64Data: compressed.base64DataUrl,
-            ocrName: ocrData.nama_lengkap || fullName.toUpperCase(),
-            ocrNumber: ocrData.nomor_identitas || 'PA8934120',
-            ocrMessage: isClear
-              ? `AI OCR: JELAS (${ocrData.nomor_identitas || 'PA8934120'}) — ${
-                  ocrData.reason || 'Clear'
-                }`
-              : ocrData.reason ||
-                'Photo is blurry / glare detected. Please retake photo clearly without flash.',
-          },
-        }));
-        if (isClear) {
-          setBookingFeedbackError(null);
-          setBookingSubmissionError(null);
-        }
-      } else {
-        setKycDocs((prev) => ({
-          ...prev,
-          [slotId]: {
-            id: slotId,
-            status: 'verified',
-            fileName: compressed.fileName,
-            compressedKb: compressed.compressedSizeKb,
-            originalKb: compressed.originalSizeKb,
-            base64Data: compressed.base64DataUrl,
-            ocrMessage: `Compressed: ${compressed.compressedSizeKb} KB — Clear`,
-          },
-        }));
-      }
-    } catch {
+      await verifyKycDocument(slotId, compressed);
+    } catch (err) {
       setKycDocs((prev) => ({
         ...prev,
         [slotId]: {
           ...prev[slotId],
-          status: 'verified',
-          compressedKb: 310,
-          ocrMessage: 'Verified Ready (310 KB)',
+          status: 'rejected',
+          ocrMessage:
+            err instanceof Error
+              ? `Gagal memproses file: ${err.message}`
+              : 'Gagal memproses file. Silakan unggah ulang foto yang jelas.',
         },
       }));
     }
@@ -701,10 +733,13 @@ export function BookingWizardApp() {
   // Count validated KYC documents
   const validatedDocCount = isExtendMode
     ? 4
-    : Object.values(kycDocs).filter(
-        (d) => d.status === 'verified' || d.status === 'compressing'
-      ).length;
-  const isPassportBlurry = kycDocs.passport.status === 'blurry';
+    : Object.values(kycDocs).filter((d) => d.status === 'verified').length;
+  const canProceedToPayment =
+    isExtendMode ||
+    (['passport', 'selfie', 'flight', 'hotel'] as const).every(
+      (key) => kycDocs[key]?.status === 'verified'
+    );
+  const isPassportBlurry = kycDocs.passport.status === 'blurry' || kycDocs.passport.status === 'rejected';
 
   // Submit Booking to n8n Endpoint 2 (POST /api/n8n/create-booking)
   const handleSubmitBooking = async () => {
@@ -758,40 +793,40 @@ export function BookingWizardApp() {
         passportSlot?.fileName &&
         !passportSlot.fileName.startsWith('Upload ') &&
         passportSlot.fileName.trim().length > 3 &&
-        passportSlot.status !== 'ready_to_upload'
+        passportSlot.status === 'verified'
       );
       if (!isPassportFilled) {
-        missing.push('Foto Paspor / KTP (Wajib diunggah)');
+        missing.push('Foto Paspor / KTP (Wajib diunggah & terverifikasi AI)');
       }
 
       const isSelfieFilled = Boolean(
         selfieSlot?.fileName &&
         !selfieSlot.fileName.startsWith('Upload ') &&
         selfieSlot.fileName.trim().length > 3 &&
-        selfieSlot.status !== 'ready_to_upload'
+        selfieSlot.status === 'verified'
       );
       if (!isSelfieFilled) {
-        missing.push('Foto Selfie dengan Paspor / KTP (Wajib diunggah)');
+        missing.push('Foto Selfie dengan Paspor / KTP (Wajib diunggah & terverifikasi AI)');
       }
 
       const isFlightFilled = Boolean(
         flightSlot?.fileName &&
         !flightSlot.fileName.startsWith('Upload ') &&
         flightSlot.fileName.trim().length > 3 &&
-        flightSlot.status !== 'ready_to_upload'
+        flightSlot.status === 'verified'
       );
       if (!isFlightFilled) {
-        missing.push('Tiket Penerbangan Pulang / Return Flight Ticket (Wajib diunggah)');
+        missing.push('Tiket Penerbangan Pulang / Return Flight Ticket (Wajib diunggah & terverifikasi AI)');
       }
 
       const isHotelFilled = Boolean(
         hotelSlot?.fileName &&
         !hotelSlot.fileName.startsWith('Upload ') &&
         hotelSlot.fileName.trim().length > 3 &&
-        hotelSlot.status !== 'ready_to_upload'
+        hotelSlot.status === 'verified'
       );
       if (!isHotelFilled) {
-        missing.push('Bukti Booking Hotel / Villa di Bali (Wajib diunggah)');
+        missing.push('Bukti Booking Hotel / Villa di Bali (Wajib diunggah & terverifikasi AI)');
       }
     }
 
@@ -924,25 +959,35 @@ export function BookingWizardApp() {
           status: passportSlot.status,
           sizeKb: passportSlot.compressedKb,
           base64: passportSlot.base64Data,
+          extractedData: passportSlot.extractedData,
         },
         selfie: {
           fileName: selfieSlot.fileName,
           status: selfieSlot.status,
           sizeKb: selfieSlot.compressedKb,
           base64: selfieSlot.base64Data,
+          extractedData: selfieSlot.extractedData,
         },
         flight: {
           fileName: flightSlot.fileName,
           status: flightSlot.status,
           sizeKb: flightSlot.compressedKb,
           base64: flightSlot.base64Data,
+          extractedData: flightSlot.extractedData,
         },
         hotel: {
           fileName: hotelSlot.fileName,
           status: hotelSlot.status,
           sizeKb: hotelSlot.compressedKb,
           base64: hotelSlot.base64Data,
+          extractedData: hotelSlot.extractedData,
         },
+      },
+      kycExtractedData: {
+        passport: passportSlot.extractedData,
+        selfie: selfieSlot.extractedData,
+        flight: flightSlot.extractedData,
+        hotel: hotelSlot.extractedData,
       },
     };
 
@@ -1304,6 +1349,7 @@ export function BookingWizardApp() {
     setPdpAgreed,
     kycDocs: kycDocs as ShowroomViewModel['kycDocs'],
     validatedDocCount,
+    canProceedToPayment,
     openCamera,
     openFilePicker,
     paymentMethod,

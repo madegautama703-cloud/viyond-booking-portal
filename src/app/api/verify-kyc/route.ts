@@ -1,120 +1,219 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenAI, Type } from '@google/genai';
+
+type KycDocType = 'passport' | 'selfie' | 'ticket' | 'hotel';
+
+interface VerifyKycRequestBody {
+  imageBase64?: string;
+  docType?: string;
+}
+
+interface ExtractedKycData {
+  nama?: string;
+  nomor_id?: string;
+  negara?: string;
+}
+
+interface VerifyKycResponse {
+  valid: boolean;
+  reason: string;
+  extractedData?: ExtractedKycData;
+}
+
+const DOC_TYPE_CRITERIA: Record<KycDocType, string> = {
+  passport:
+    'Dokumen harus berupa foto KTP, SIM, atau Paspor asli yang jelas dan tajam. Nama lengkap dan nomor identitas (NIK/No. SIM/No. Paspor) harus terbaca dengan jelas, tidak buram, tidak tertutup pantulan cahaya (glare), dan bukan foto acak/layar buram.',
+  selfie:
+    'Foto harus memperlihatkan wajah seseorang secara jelas yang sedang memegang kartu identitas (KTP/SIM/Paspor). Baik wajah maupun kartu identitas harus terlihat jelas.',
+  ticket:
+    'Dokumen harus berupa bukti atau e-ticket penerbangan pulang (return flight ticket) dengan nama penumpang dan/atau tanggal/rute penerbangan yang terbaca jelas.',
+  hotel:
+    'Dokumen harus berupa bukti reservasi hotel, vila, atau penginapan di Bali dengan nama tempat/properti penginapan yang terbaca jelas.',
+};
+
+function isValidDocType(value: unknown): value is KycDocType {
+  return value === 'passport' || value === 'selfie' || value === 'ticket' || value === 'hotel';
+}
+
+function normalizeImageDataUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('data:')) {
+    return trimmed;
+  }
+  return `data:image/jpeg;base64,${trimmed}`;
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { imageBase64, mimeType, documentType, simulateMode } = body;
-
-    // Instant simulation modes for testing UAT Scenario #3
-    if (simulateMode === 'blur') {
-      return NextResponse.json({
-        status_kejelasan_foto: 'BURAM',
-        isClear: false,
-        nama_lengkap: null,
-        nomor_identitas: null,
-        negara_asal: null,
-        reason: 'Text unreadable due to glare/blur. Please retake photo clearly without flash.',
-      });
-    }
-
-    if (simulateMode === 'clear' || !imageBase64) {
-      return NextResponse.json({
-        status_kejelasan_foto: 'JELAS',
-        isClear: true,
-        nama_lengkap: 'ALEXANDER WRIGHT',
-        nomor_identitas: 'PA8934120',
-        negara_asal: 'AUSTRALIA',
-        reason: 'Document edges sharp, MRZ and identity fields legible.',
-      });
-    }
-
-    if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'MY_GEMINI_API_KEY') {
-      // Fallback in case of mock environment key
-      return NextResponse.json({
-        status_kejelasan_foto: 'JELAS',
-        isClear: true,
-        nama_lengkap: 'ALEXANDER WRIGHT',
-        nomor_identitas: 'PA8934120',
-        negara_asal: 'AUSTRALIA',
-        reason: 'Verified via client-side compression + Vision OCR check.',
-      });
-    }
-
-    const ai = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
+    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          valid: false,
+          reason: 'OPENAI_API_KEY belum dikonfigurasi di environment server.',
+          error: 'OPENAI_API_KEY is not set in environment variables.',
         },
+        { status: 500 }
+      );
+    }
+
+    const body = (await req.json()) as VerifyKycRequestBody;
+    const { imageBase64, docType } = body;
+
+    if (!imageBase64 || typeof imageBase64 !== 'string') {
+      return NextResponse.json(
+        {
+          valid: false,
+          reason: 'Gambar (imageBase64) wajib disertakan untuk verifikasi.',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!isValidDocType(docType)) {
+      return NextResponse.json(
+        {
+          valid: false,
+          reason: "docType tidak valid. Gunakan salah satu dari: 'passport', 'selfie', 'ticket', 'hotel'.",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (imageBase64.startsWith('data:application/pdf')) {
+      return NextResponse.json(
+        {
+          valid: false,
+          reason:
+            'Format PDF belum didukung untuk validasi AI Vision secara langsung. Mohon unggah foto atau screenshot dokumen (JPG/PNG/WEBP).',
+        },
+        { status: 400 }
+      );
+    }
+
+    const imageUrl = normalizeImageDataUrl(imageBase64);
+    const criteria = DOC_TYPE_CRITERIA[docType];
+
+    const systemPrompt = `Anda adalah sistem validator AI Vision OCR KYC untuk layanan rental motor di Bali (Viyond).
+Tugas Anda adalah memverifikasi apakah gambar yang diunggah pengguna valid untuk jenis dokumen "${docType}".
+
+Kriteria validasi untuk "${docType}":
+${criteria}
+
+Aturan output:
+Kembalikan HANYA JSON object yang valid dengan struktur persis berikut:
+{
+  "valid": boolean,
+  "reason": "Penjelasan singkat dan jelas dalam Bahasa Indonesia mengenai hasil validasi atau alasan penolakan jika tidak valid",
+  "extractedData": {
+    "nama": "Nama lengkap jika terbaca (opsional)",
+    "nomor_id": "Nomor KTP/SIM/Paspor atau kode booking jika terbaca (opsional)",
+    "negara": "Negara/kewarganegaraan jika terbaca (opsional)"
+  }
+}
+
+Jika gambar buram, terpotong parah, bukan dokumen yang diminta, atau teks penting tidak dapat dibaca, set "valid": false dan jelaskan alasannya di "reason" agar pengguna tahu harus mengunggah ulang apa.`;
+
+    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
       },
-    });
-
-    const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: {
-        parts: [
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        response_format: { type: 'json_object' },
+        temperature: 0.1,
+        max_tokens: 400,
+        messages: [
           {
-            inlineData: {
-              mimeType: mimeType || 'image/jpeg',
-              data: cleanBase64,
-            },
+            role: 'system',
+            content: systemPrompt,
           },
           {
-            text: `You are an automated KYC Vision OCR validator for a vehicle rental service in Bali.
-Evaluate this uploaded image for document type: "${documentType || 'Passport / ID Card'}".
-Determine if the image is clear and readable ("JELAS") or blurry/glare/unreadable ("BURAM").
-Extract nama_lengkap, nomor_identitas, and negara_asal if visible, or provide a concise status reason.`,
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `Analisis gambar berikut untuk verifikasi KYC tipe dokumen: ${docType}.`,
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: imageUrl,
+                  detail: 'high',
+                },
+              },
+            ],
           },
         ],
-      },
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            status_kejelasan_foto: {
-              type: Type.STRING,
-              description: 'Must be either JELAS or BURAM',
-            },
-            isClear: {
-              type: Type.BOOLEAN,
-              description: 'True if photo is clear and readable, false if blurry or has severe glare',
-            },
-            nama_lengkap: {
-              type: Type.STRING,
-              description: 'Extracted full name if visible',
-            },
-            nomor_identitas: {
-              type: Type.STRING,
-              description: 'Extracted passport or ID number if visible',
-            },
-            negara_asal: {
-              type: Type.STRING,
-              description: 'Extracted country/nationality if visible',
-            },
-            reason: {
-              type: Type.STRING,
-              description: 'Short explanation of clarity or rejection reason',
-            },
-          },
-          required: ['status_kejelasan_foto', 'isClear', 'reason'],
-        },
-      },
+      }),
     });
 
-    const parsed = JSON.parse(response.text || '{}');
-    return NextResponse.json(parsed);
+    if (!openaiRes.ok) {
+      const errText = await openaiRes.text();
+      console.error('[API /api/verify-kyc] OpenAI API error:', openaiRes.status, errText);
+      return NextResponse.json(
+        {
+          valid: false,
+          reason: `Gagal menghubungi layanan AI Vision (status ${openaiRes.status}). Silakan coba lagi.`,
+        },
+        { status: 502 }
+      );
+    }
+
+    const openaiData = await openaiRes.json();
+    const rawContent: string | undefined = openaiData?.choices?.[0]?.message?.content;
+
+    if (!rawContent) {
+      return NextResponse.json(
+        {
+          valid: false,
+          reason: 'Respons AI Vision kosong. Silakan unggah ulang gambar.',
+        },
+        { status: 502 }
+      );
+    }
+
+    const parsed = JSON.parse(rawContent) as Partial<VerifyKycResponse>;
+    const valid = parsed.valid === true;
+    const reason =
+      typeof parsed.reason === 'string' && parsed.reason.trim().length > 0
+        ? parsed.reason.trim()
+        : valid
+          ? 'Dokumen terbaca jelas dan valid.'
+          : 'Dokumen tidak memenuhi kriteria verifikasi. Silakan unggah ulang foto yang jelas.';
+
+    const extractedData: ExtractedKycData | undefined =
+      parsed.extractedData && typeof parsed.extractedData === 'object'
+        ? {
+            ...(parsed.extractedData.nama ? { nama: String(parsed.extractedData.nama).trim() } : {}),
+            ...(parsed.extractedData.nomor_id
+              ? { nomor_id: String(parsed.extractedData.nomor_id).trim() }
+              : {}),
+            ...(parsed.extractedData.negara
+              ? { negara: String(parsed.extractedData.negara).trim() }
+              : {}),
+          }
+        : undefined;
+
+    const result: VerifyKycResponse = {
+      valid,
+      reason,
+      ...(extractedData && Object.keys(extractedData).length > 0 ? { extractedData } : {}),
+    };
+
+    return NextResponse.json(result);
   } catch (error) {
-    return NextResponse.json({
-      status_kejelasan_foto: 'JELAS',
-      isClear: true,
-      nama_lengkap: 'ALEXANDER WRIGHT',
-      nomor_identitas: 'PA8934120',
-      negara_asal: 'AUSTRALIA',
-      reason: error instanceof Error ? `Verified (${error.message.slice(0, 40)})` : 'Verified Ready',
-    });
+    console.error('[API /api/verify-kyc] Unexpected error:', error);
+    return NextResponse.json(
+      {
+        valid: false,
+        reason:
+          error instanceof Error
+            ? `Terjadi kesalahan saat memvalidasi dokumen: ${error.message}`
+            : 'Terjadi kesalahan internal saat memvalidasi dokumen.',
+      },
+      { status: 500 }
+    );
   }
 }

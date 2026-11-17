@@ -184,6 +184,7 @@ export function PrimaryStepAction({
 
   const disabled =
     (activeStep === 1 && !vm.selectedCategory.isAvailable) ||
+    (activeStep === 2 && !vm.canProceedToPayment) ||
     (activeStep === 3 && vm.isSubmittingBooking);
 
   return (

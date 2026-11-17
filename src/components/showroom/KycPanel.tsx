@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Camera, Upload, ShieldCheck, FileText, Plane, Hotel, UserRound } from 'lucide-react';
+import { Camera, Upload, ShieldCheck, FileText, Plane, Hotel, UserRound, Loader2 } from 'lucide-react';
 import type { KycSlotKey, ShowroomKycDoc, ShowroomViewModel } from './types';
 import { COUNTRY_CODES, NATIONALITIES } from './shared';
 
@@ -13,15 +13,22 @@ const SLOT_ICONS: Record<KycSlotKey, React.ComponentType<{ className?: string }>
 };
 
 function DocStatus({ doc }: { doc: ShowroomKycDoc }) {
+  const isVerifying = doc.status === 'verifying' || doc.status === 'compressing';
   const map = {
-    verified: { cls: 'bg-[#D1FAE5] text-[#065F46]', dot: 'bg-[#10B981]', label: 'Verified' },
-    compressing: { cls: 'bg-amber-100 text-amber-800', dot: 'bg-amber-500 animate-pulse', label: 'Scanning' },
-    blurry: { cls: 'bg-rose-100 text-rose-700', dot: 'bg-rose-500', label: 'Blurry' },
+    verified: { cls: 'bg-[#D1FAE5] text-[#065F46]', dot: 'bg-[#10B981]', label: 'VERIFIED' },
+    verifying: { cls: 'bg-amber-100 text-amber-800', dot: 'bg-amber-500 animate-pulse', label: 'Memeriksa AI...' },
+    compressing: { cls: 'bg-amber-100 text-amber-800', dot: 'bg-amber-500 animate-pulse', label: 'Memeriksa AI...' },
+    rejected: { cls: 'bg-rose-100 text-rose-700', dot: 'bg-rose-500', label: 'TIDAK VALID / DITOLAK' },
+    blurry: { cls: 'bg-rose-100 text-rose-700', dot: 'bg-rose-500', label: 'TIDAK VALID / DITOLAK' },
     ready_to_upload: { cls: 'bg-[#F1F2F4] text-[#6B7280]', dot: 'bg-[#9CA3AF]', label: 'Required' },
   }[doc.status];
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${map.cls}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${map.dot}`} />
+      {isVerifying ? (
+        <Loader2 className="h-3 w-3 animate-spin text-amber-600" />
+      ) : (
+        <span className={`h-1.5 w-1.5 rounded-full ${map.dot}`} />
+      )}
       {map.label}
     </span>
   );
@@ -141,13 +148,18 @@ export function KycDocumentGrid({
       {slots.map(({ key, title, cameraLabel }) => {
         const doc = vm.kycDocs[key];
         const Icon = SLOT_ICONS[key];
-        const isBlurry = doc?.status === 'blurry';
+        const isRejected = doc?.status === 'rejected' || doc?.status === 'blurry';
+        const isVerifying = doc?.status === 'verifying' || doc?.status === 'compressing';
         const hasFile = doc && doc.status !== 'ready_to_upload';
         return (
           <div
             key={key}
             className={`rounded-2xl border p-4 transition-colors ${
-              isBlurry ? 'border-rose-200 bg-rose-50/70' : 'border-[#EEF0F2] bg-[#F7F8F9]'
+              isRejected
+                ? 'border-rose-200 bg-rose-50/70'
+                : isVerifying
+                ? 'border-amber-200 bg-amber-50/40'
+                : 'border-[#EEF0F2] bg-[#F7F8F9]'
             }`}
           >
             <div className="flex items-start justify-between gap-2">
@@ -160,27 +172,43 @@ export function KycDocumentGrid({
               {title.replace(/^\d\.\s*/, '')}
             </div>
             <p
-              className={`mt-1 line-clamp-2 text-[11px] leading-snug ${
-                isBlurry ? 'text-rose-600' : 'text-[#6B7280]'
+              className={`mt-1 text-[11px] leading-snug ${
+                isRejected ? 'font-medium text-rose-700' : 'line-clamp-2 text-[#6B7280]'
               }`}
             >
               {hasFile
                 ? `${doc.fileName}${doc.compressedKb ? ` · ${doc.compressedKb} KB` : ''}`
                 : doc?.ocrMessage}
             </p>
+            {isVerifying && (
+              <p className="mt-1 flex items-center gap-1.5 text-[11px] font-medium text-amber-700">
+                <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                <span>Memeriksa AI...</span>
+              </p>
+            )}
+            {isRejected && doc?.ocrMessage && (
+              <p className="mt-1 text-[11px] leading-snug text-rose-600">
+                {doc.ocrMessage}{' '}
+                <span className="font-semibold underline">
+                  {vm.lang === 'id' ? 'Mohon unggah ulang.' : 'Please re-upload.'}
+                </span>
+              </p>
+            )}
             <div className="mt-3 flex items-center gap-2">
               <button
                 type="button"
+                disabled={isVerifying}
                 onClick={() => vm.openCamera(key)}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-[#14171F] px-3 py-2 text-[11px] font-semibold text-white transition-transform active:scale-95 cursor-pointer"
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-[#14171F] px-3 py-2 text-[11px] font-semibold text-white transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
                 <Camera className="h-3.5 w-3.5" />
                 {cameraLabel}
               </button>
               <button
                 type="button"
+                disabled={isVerifying}
                 onClick={() => vm.openFilePicker(key)}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-white border border-[#E5E7EB] text-[#14171F] transition-transform active:scale-95 cursor-pointer"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-white border border-[#E5E7EB] text-[#14171F] transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 aria-label={`Upload ${title}`}
               >
                 <Upload className="h-3.5 w-3.5" />
