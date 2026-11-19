@@ -4,9 +4,10 @@ import { masterDb } from '@/lib/masterDbStore';
 export const dynamic = 'force-dynamic';
 
 function getN8nBaseUrl(): string {
-  return (process.env.N8N_WEBHOOK_BASE_URL || 'https://n8n.viyond.tech')
+  const raw = (process.env.N8N_WEBHOOK_BASE_URL || 'https://n8n.viyond.tech/webhook')
     .trim()
     .replace(/\/+$/, '');
+  return raw.endsWith('/webhook') ? raw : `${raw}/webhook`;
 }
 
 function formatFetchError(err: unknown): { message: string; cause?: string } {

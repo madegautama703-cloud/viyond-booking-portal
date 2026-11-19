@@ -6,9 +6,10 @@ import { applyTariff, extractReadyCount, motorMatchesCategory, pickFieldCI } fro
 export const dynamic = 'force-dynamic';
 
 function getN8nBaseUrl(): string {
-  return (process.env.N8N_WEBHOOK_BASE_URL || 'https://n8n.viyond.tech')
+  const raw = (process.env.N8N_WEBHOOK_BASE_URL || 'https://n8n.viyond.tech/webhook')
     .trim()
     .replace(/\/+$/, '');
+  return raw.endsWith('/webhook') ? raw : `${raw}/webhook`;
 }
 
 function formatFetchError(err: unknown): { message: string; cause?: string } {
@@ -51,41 +52,87 @@ interface RawMotorItem {
 }
 
 /**
- * Normalizes raw motors array from n8n / Google Sheets "Aggregate Ready Stock" node
- * Maps categories: "NMAX", "PCX", "Scoopy", "Vario", "Fazzio"
+ * Normalizes raw motors array from n8n / Google Sheets INVENTARIS_MOTOR
+ * Reads Kategori_Motor, Status_Unit, Harga_Harian, Harga_Mingguan, Harga_Bulanan
+ * and counts READY units per category in real time (0 if no READY units).
  */
 function mapMotorsToCategories(motors: RawMotorItem[]): EnrichedCategory[] {
   if (!motors || !Array.isArray(motors) || motors.length === 0) {
-    return masterDb.getPublicAggregatedInventory();
+    return VEHICLE_CATEGORIES.map((cat) => ({
+      ...cat,
+      availableUnits: 0,
+      totalFleetUnits: 0,
+      isAvailable: false,
+    }));
   }
+
   return VEHICLE_CATEGORIES.map((cat) => {
-    const matched = motors.find((m) => motorMatchesCategory(m as any, cat));
+    const matchedRows = motors.filter((m) => motorMatchesCategory(m as any, cat));
 
-    if (matched) {
-      const count = extractReadyCount(matched as any);
-      const isAvailable = count > 0;
-      const rawTotal = pickFieldCI(matched as any, ['totalUnits', 'total_units', 'total', 'jumlahUnit']);
-
-      // Tariffs & ready counts come directly from the live Google Sheets / n8n row
+    if (matchedRows.length === 0) {
       return {
-        ...applyTariff(cat, matched as any),
-        availableUnits: count,
-        totalFleetUnits: rawTotal ? Number(rawTotal) || Math.max(count, 3) : Math.max(count, 3),
-        isAvailable,
+        ...cat,
+        availableUnits: 0,
+        totalFleetUnits: 0,
+        isAvailable: false,
       };
     }
 
-    // Default fallback if category not present in remote payload
-    const defaultReadyCount =
-      INITIAL_INVENTARIS_MOTOR.filter(
-        (u) => u.categoryId === cat.id && u.status === 'READY'
-      ).length || 2;
+    // Check if single pre-aggregated row with explicit numeric count (not per-unit INVENTARIS_MOTOR rows)
+    const firstRow = matchedRows[0] as Record<string, any>;
+    const explicitCount = pickFieldCI(firstRow, [
+      'availableCount',
+      'availableUnits',
+      'readyUnits',
+      'readyCount',
+      'jumlahReady',
+      'stokReady',
+      'stock',
+      'stok',
+      'count',
+    ]);
+    const isAggregatedSingleRow =
+      matchedRows.length === 1 && explicitCount !== undefined && explicitCount !== null && explicitCount !== '';
+
+    let availableUnits = 0;
+    let totalFleetUnits = matchedRows.length;
+
+    if (isAggregatedSingleRow) {
+      availableUnits = extractReadyCount(firstRow);
+      const rawTotal = pickFieldCI(firstRow, ['totalUnits', 'total_units', 'total', 'jumlahUnit']);
+      totalFleetUnits = rawTotal ? Number(rawTotal) || Math.max(availableUnits, 1) : Math.max(availableUnits, 1);
+    } else {
+      // Per-unit rows from Google Sheets INVENTARIS_MOTOR (count rows where Status_Unit === 'READY')
+      availableUnits = matchedRows.filter((row) => {
+        const statusVal = String(
+          pickFieldCI(row as any, ['Status_Unit', 'status_unit', 'Status', 'status']) || ''
+        )
+          .trim()
+          .toUpperCase();
+        return statusVal === 'READY';
+      }).length;
+      totalFleetUnits = matchedRows.length;
+    }
+
+    // Pick first row that carries tariff columns (Harga_Harian / Harga_Mingguan / Harga_Bulanan)
+    const tariffRow =
+      matchedRows.find(
+        (r) =>
+          pickFieldCI(r as any, [
+            'Harga_Harian',
+            'Harga_Mingguan',
+            'Harga_Bulanan',
+            'dailyPrice',
+            'weeklyPrice',
+            'monthlyPrice',
+          ]) !== undefined
+      ) || firstRow;
 
     return {
-      ...cat,
-      availableUnits: defaultReadyCount,
-      totalFleetUnits: Math.max(defaultReadyCount + 1, 3),
-      isAvailable: defaultReadyCount > 0,
+      ...applyTariff(cat, tariffRow as any),
+      availableUnits,
+      totalFleetUnits,
+      isAvailable: availableUnits > 0,
     };
   });
 }
@@ -96,8 +143,8 @@ export async function GET(req: NextRequest) {
   const url = req.nextUrl || new URL(req.url, 'http://localhost:3000');
   const searchParams = url.searchParams;
 
-  // Target webhook is fixed server-side using N8N_WEBHOOK_BASE_URL (default https://n8n.viyond.tech)
-  const rawRequestedEndpoint = `${getN8nBaseUrl()}/viyond-live-inventory`;
+  // Target webhook is fixed server-side using N8N_WEBHOOK_BASE_URL (default https://n8n.viyond.tech/webhook)
+  const rawRequestedEndpoint = `${getN8nBaseUrl()}/portal-live-inventory`;
 
   const startDate = searchParams.get('startDate');
   const endDate = searchParams.get('endDate');
@@ -178,6 +225,8 @@ export async function GET(req: NextRequest) {
       !Array.isArray(row.categories) &&
       Boolean(
         pickFieldCI(row, [
+          'Kategori_Motor',
+          'Status_Unit',
           'category',
           'name',
           'Nama_Motor',

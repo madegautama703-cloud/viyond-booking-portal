@@ -145,7 +145,7 @@ export function motorMatchesCategory(m: Record<string, any>, cat: VehicleCategor
     m.category,
     m.name,
     m.title,
-    pickFieldCI(m, ['Nama_Motor', 'namaMotor', 'Kategori', 'kategori', 'model', 'tipe', 'unit']),
+    pickFieldCI(m, ['Kategori_Motor', 'kategoriMotor', 'Nama_Motor', 'namaMotor', 'Kategori', 'kategori', 'model', 'tipe', 'unit']),
   ]
     .map(norm)
     .filter((c) => c.length >= 3);

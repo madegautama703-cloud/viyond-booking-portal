@@ -425,10 +425,16 @@ export function BookingWizardApp() {
             }
           }
         } else if (typeof rawData === 'object' && rawData !== null) {
-          if (Array.isArray(rawData.motors)) {
-            incomingMotors = rawData.motors;
-          } else if (Array.isArray(rawData.categories)) {
+          if (Array.isArray(rawData.motors) && rawData.motors.length > 0) {
+            setRawMotors(rawData.motors);
+          }
+          // Prefer server-aggregated categories (accurate READY counts including 0 for sold-out models)
+          if (Array.isArray(rawData.categories) && rawData.categories.length > 0) {
             incomingMotors = rawData.categories;
+          } else if (Array.isArray(rawData.motors)) {
+            incomingMotors = rawData.motors;
+          } else if (Array.isArray(rawData.inventory)) {
+            incomingMotors = rawData.inventory;
           } else if (Array.isArray(rawData.data)) {
             incomingMotors = rawData.data;
           }
