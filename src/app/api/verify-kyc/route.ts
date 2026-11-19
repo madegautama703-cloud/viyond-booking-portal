@@ -22,9 +22,9 @@ interface VerifyKycResponse {
 
 const DOC_TYPE_CRITERIA: Record<KycDocType, string> = {
   passport:
-    'Dokumen harus berupa foto KTP Indonesia (e-KTP), SIM A/C Indonesia, atau Paspor asli (WNI/WNA) yang jelas dan tajam. Nama lengkap dan nomor identitas (NIK/No. SIM/No. Paspor) harus terbaca dengan jelas, tidak buram, tidak tertutup pantulan cahaya (glare), dan bukan foto acak/layar buram. KTP, SIM, dan Paspor semuanya diterima sebagai identitas yang sah.',
+    'Dokumen identitas utama yang SAH (valid: true) meliputi: e-KTP Indonesia, SIM (Surat Izin Mengemudi Indonesia / International Driving Permit), MAUPUN Paspor asli (WNI/WNA). Foto harus terlihat jelas, tidak buram/terpotong parah, tidak tertutup pantulan cahaya (glare), serta nama lengkap dan nomor identitas (NIK / No. SIM / No. Paspor) terbaca. PENTING: JANGAN pernah menolak foto hanya karena dokumen tersebut adalah KTP atau SIM dan bukan paspor.',
   selfie:
-    'Foto harus memperlihatkan wajah seseorang secara jelas yang sedang memegang kartu identitas (KTP/SIM/Paspor). Baik wajah maupun kartu identitas harus terlihat jelas.',
+    'Foto harus memperlihatkan wajah seseorang secara jelas yang sedang memegang kartu identitas berupa KTP, SIM, maupun Paspor. Baik wajah maupun kartu identitas (KTP/SIM/Paspor) harus terlihat jelas — JANGAN menolak jika yang dipegang adalah KTP atau SIM.',
   ticket:
     'Dokumen harus berupa bukti atau e-ticket penerbangan pulang (return flight ticket) dengan nama penumpang dan/atau tanggal/rute penerbangan yang terbaca jelas.',
   hotel:
@@ -148,7 +148,12 @@ Jika gambar buram, terpotong parah, bukan dokumen yang diminta, atau teks pentin
             content: [
               {
                 type: 'text',
-                text: `Analisis gambar berikut untuk verifikasi KYC tipe dokumen: ${docType}.`,
+                text:
+                  docType === 'passport'
+                    ? 'Analisis gambar berikut untuk verifikasi KYC identitas utama. KTP (e-KTP Indonesia), SIM (Indonesia / International Driving Permit), maupun Paspor semuanya SAH (valid: true) selama foto jelas serta nama dan nomor identitas terbaca. Jangan tolak jika dokumen berupa KTP atau SIM.'
+                    : docType === 'selfie'
+                    ? 'Analisis gambar berikut untuk verifikasi KYC selfie memegang identitas (terima KTP, SIM, maupun Paspor selama wajah dan kartu identitas terlihat jelas).'
+                    : `Analisis gambar berikut untuk verifikasi KYC tipe dokumen: ${docType}.`,
               },
               {
                 type: 'image_url',
