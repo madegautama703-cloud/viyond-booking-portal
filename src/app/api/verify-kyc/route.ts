@@ -24,7 +24,7 @@ const DOC_TYPE_CRITERIA: Record<KycDocType, string> = {
   passport:
     'Dokumen identitas utama yang SAH (valid: true) meliputi: e-KTP Indonesia, SIM (Surat Izin Mengemudi Indonesia / International Driving Permit), MAUPUN Paspor asli (WNI/WNA). Foto harus terlihat jelas, tidak buram/terpotong parah, tidak tertutup pantulan cahaya (glare), serta nama lengkap dan nomor identitas (NIK / No. SIM / No. Paspor) terbaca. PENTING: JANGAN pernah menolak foto hanya karena dokumen tersebut adalah KTP atau SIM dan bukan paspor.',
   selfie:
-    'Foto harus memperlihatkan wajah seseorang secara jelas yang sedang memegang kartu identitas berupa KTP, SIM, maupun Paspor. Baik wajah maupun kartu identitas (KTP/SIM/Paspor) harus terlihat jelas — JANGAN menolak jika yang dipegang adalah KTP atau SIM.',
+    'Pastikan terlihat wajah seseorang secara jelas yang sedang memegang kartu identitas (KTP, SIM, atau Paspor) di dekat wajah/dadanya. JANGAN mewajibkan nama atau nomor identitas pada kartu terbaca jelas — jarak kamera selfie membuat tulisan kartu terlalu kecil, dan pembacaan teks sudah dilakukan pada dokumen identitas utama. Set "valid": false HANYA jika: (1) tidak ada wajah manusia, (2) wajah tertutup masker atau gelap total, atau (3) orang tersebut sama sekali tidak terlihat memegang kartu/dokumen identitas. Di luar itu, set "valid": true. Isi extractedData hanya jika terbaca; boleh dikosongkan.',
   ticket:
     'Dokumen harus berupa bukti atau e-ticket penerbangan pulang (return flight ticket) dengan nama penumpang dan/atau tanggal/rute penerbangan yang terbaca jelas.',
   hotel:
@@ -125,7 +125,11 @@ Kembalikan HANYA JSON object yang valid dengan struktur persis berikut:
   }
 }
 
-Jika gambar buram, terpotong parah, bukan dokumen yang diminta, atau teks penting tidak dapat dibaca, set "valid": false dan jelaskan alasannya di "reason" agar pengguna tahu harus mengunggah ulang apa.`;
+${
+  docType === 'selfie'
+    ? 'Untuk selfie: tolak (valid false) HANYA jika tidak ada wajah manusia, wajah tertutup masker/gelap total, atau orang tidak terlihat memegang kartu/dokumen identitas. Teks pada kartu TIDAK perlu terbaca jelas dan jangan dijadikan alasan penolakan.'
+    : 'Jika gambar buram, terpotong parah, bukan dokumen yang diminta, atau teks penting tidak dapat dibaca, set "valid": false dan jelaskan alasannya di "reason" agar pengguna tahu harus mengunggah ulang apa.'
+}`;
 
     const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -152,7 +156,7 @@ Jika gambar buram, terpotong parah, bukan dokumen yang diminta, atau teks pentin
                   docType === 'passport'
                     ? 'Analisis gambar berikut untuk verifikasi KYC identitas utama. KTP (e-KTP Indonesia), SIM (Indonesia / International Driving Permit), maupun Paspor semuanya SAH (valid: true) selama foto jelas serta nama dan nomor identitas terbaca. Jangan tolak jika dokumen berupa KTP atau SIM.'
                     : docType === 'selfie'
-                    ? 'Analisis gambar berikut untuk verifikasi KYC selfie memegang identitas (terima KTP, SIM, maupun Paspor selama wajah dan kartu identitas terlihat jelas).'
+                    ? 'Analisis gambar berikut untuk verifikasi KYC selfie memegang identitas. Valid jika terlihat wajah manusia yang jelas dan orang tersebut memegang kartu identitas (KTP, SIM, atau Paspor) di dekat wajah/dada. Teks pada kartu TIDAK perlu terbaca. Tolak hanya jika tidak ada wajah, wajah tertutup masker/gelap total, atau tidak ada kartu identitas yang dipegang.'
                     : `Analisis gambar berikut untuk verifikasi KYC tipe dokumen: ${docType}.`,
               },
               {
