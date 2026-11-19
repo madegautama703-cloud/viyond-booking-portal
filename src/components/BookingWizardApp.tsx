@@ -24,6 +24,7 @@ import {
   CompressedImageResult,
 } from '@/lib/imageCompression';
 import { BookingOrderRecord } from '@/lib/masterDbStore';
+import { applyTariff, motorMatchesCategory } from '@/lib/fleetPricing';
 import { UatControlConsole } from '@/components/UatControlConsole';
 import { CameraCaptureModal } from '@/components/CameraCaptureModal';
 import { DesktopShowroom } from '@/components/showroom/DesktopShowroom';
@@ -440,19 +441,7 @@ export function BookingWizardApp() {
 
         // Petakan ketersediaan unit ('Available Units') ke seluruh kategori kendaraan
         const updatedCategories = VEHICLE_CATEGORIES.map((cat) => {
-          const matched = incomingMotors.find((m: any) => {
-            const catName = String(m.category || m.name || m.title || '').trim().toUpperCase();
-            const catId = String(m.id || m.categoryId || '').trim().toLowerCase();
-            const targetId = cat.id.toLowerCase();
-            const targetName = cat.name.toUpperCase();
-            return (
-              catName === targetId.toUpperCase() ||
-              catName.includes(targetId.toUpperCase()) ||
-              targetName.includes(catName) ||
-              catId === targetId ||
-              catId.includes(targetId)
-            );
-          });
+          const matched = incomingMotors.find((m: any) => motorMatchesCategory(m, cat));
 
           if (matched) {
             const statusUpper = String(matched.status || '').trim().toUpperCase();
@@ -478,15 +467,12 @@ export function BookingWizardApp() {
             const isAvailable = count > 0;
 
             return {
-              ...cat,
+              ...applyTariff(cat, matched),
               availableUnits: count,
               totalFleetUnits: matched.totalUnits
                 ? Number(matched.totalUnits)
                 : Math.max(count, 3),
               isAvailable,
-              dailyPrice: matched.dailyPrice ? Number(matched.dailyPrice) : cat.dailyPrice,
-              weeklyPrice: matched.weeklyPrice ? Number(matched.weeklyPrice) : cat.weeklyPrice,
-              monthlyPrice: matched.monthlyPrice ? Number(matched.monthlyPrice) : cat.monthlyPrice,
             };
           }
 
@@ -500,6 +486,10 @@ export function BookingWizardApp() {
 
           return {
             ...cat,
+            // Keep tariffs already synced from the live sheet instead of reverting to defaults
+            dailyPrice: existing?.dailyPrice ?? cat.dailyPrice,
+            weeklyPrice: existing?.weeklyPrice ?? cat.weeklyPrice,
+            monthlyPrice: existing?.monthlyPrice ?? cat.monthlyPrice,
             availableUnits: defaultCount,
             totalFleetUnits: Math.max(defaultCount + 1, 3),
             isAvailable: defaultCount > 0,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { masterDb } from '@/lib/masterDbStore';
 import { INITIAL_INVENTARIS_MOTOR, VEHICLE_CATEGORIES, VehicleCategory } from '@/config/siteConfig';
+import { applyTariff, motorMatchesCategory } from '@/lib/fleetPricing';
 
 // Production n8n GET Webhook URL
 const PRODUCTION_N8N_WEBHOOK_URL =
@@ -39,20 +40,7 @@ function mapMotorsToCategories(motors: RawMotorItem[]): EnrichedCategory[] {
     return masterDb.getPublicAggregatedInventory();
   }
   return VEHICLE_CATEGORIES.map((cat) => {
-    const matched = motors.find((m) => {
-      const catName = String(m.category || m.name || '').trim().toUpperCase();
-      const catId = String(m.id || m.categoryId || '').trim().toLowerCase();
-      const targetId = cat.id.toLowerCase();
-      const targetName = cat.name.toUpperCase();
-
-      return (
-        catName === targetId.toUpperCase() ||
-        catName.includes(targetId.toUpperCase()) ||
-        targetName.includes(catName) ||
-        catId === targetId ||
-        catId.includes(targetId)
-      );
-    });
+    const matched = motors.find((m) => motorMatchesCategory(m as any, cat));
 
     if (matched) {
       const statusUpper = String(matched.status || '').trim().toUpperCase();
@@ -76,16 +64,14 @@ function mapMotorsToCategories(motors: RawMotorItem[]): EnrichedCategory[] {
 
       const isAvailable = count > 0;
 
+      // Tariffs always come from the live Google Sheets / n8n row (official defaults only if missing)
       return {
-        ...cat,
+        ...applyTariff(cat, matched as any),
         availableUnits: count,
         totalFleetUnits: matched.totalUnits
           ? Number(matched.totalUnits)
           : Math.max(count, 3),
         isAvailable,
-        dailyPrice: matched.dailyPrice ? Number(matched.dailyPrice) : cat.dailyPrice,
-        weeklyPrice: matched.weeklyPrice ? Number(matched.weeklyPrice) : cat.weeklyPrice,
-        monthlyPrice: matched.monthlyPrice ? Number(matched.monthlyPrice) : cat.monthlyPrice,
       };
     }
 
@@ -110,10 +96,11 @@ export async function GET(req: NextRequest) {
   const url = req.nextUrl || new URL(req.url, 'http://localhost:3000');
   const searchParams = url.searchParams;
 
+  // NOTE: the target webhook is fixed server-side. A client-supplied ?endpoint= is intentionally
+  // ignored, otherwise the x-viyond-secret header could be forwarded to an arbitrary URL.
   const rawRequestedEndpoint =
-    searchParams.get('endpoint') ||
-    process.env.NEXT_PUBLIC_N8N_GET_INVENTORY_WEBHOOK_URL ||
     process.env.N8N_GET_INVENTORY_WEBHOOK_URL ||
+    process.env.NEXT_PUBLIC_N8N_GET_INVENTORY_WEBHOOK_URL ||
     PRODUCTION_N8N_WEBHOOK_URL;
 
   const startDate = searchParams.get('startDate');

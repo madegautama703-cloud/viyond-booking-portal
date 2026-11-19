@@ -162,6 +162,31 @@ export function KycDocumentGrid({
           const doc = vm.kycDocs[key];
           const Icon = SLOT_ICONS[key];
           const isOptional = isLocalWni && (key === 'flight' || key === 'hotel');
+          if (isOptional) {
+            // WNI: flight ticket & hotel proof are not required and excluded from validation
+            return (
+              <div
+                key={key}
+                className="rounded-2xl border border-dashed border-[#D1D5DB] bg-[#F9FAFB]/80 p-4"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white shadow-sm border border-[#EEF0F2] opacity-60">
+                    <Icon className="h-4 w-4 text-[#14171F]" />
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-[#EEF2FF] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#4338CA]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#6366F1]" />
+                    TIDAK PERLU (WNI)
+                  </span>
+                </div>
+                <div className="mt-3 text-[13px] font-semibold leading-snug text-[#6B7280]">
+                  {title.replace(/^\d\.\s*/, '')}
+                </div>
+                <p className="mt-1 text-[11px] leading-snug text-[#9CA3AF]">
+                  Tidak perlu diunggah untuk penyewa WNI.
+                </p>
+              </div>
+            );
+          }
           const isRejected = doc?.status === 'rejected' || doc?.status === 'blurry';
           const isVerifying = doc?.status === 'verifying' || doc?.status === 'compressing';
           const hasFile = doc && doc.status !== 'ready_to_upload';

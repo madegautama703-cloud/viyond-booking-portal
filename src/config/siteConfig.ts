@@ -122,7 +122,7 @@ export const VEHICLE_CATEGORIES: VehicleCategory[] = [
     imageFile: 'NMAX.webp',
     dailyPrice: 150000,
     weeklyPrice: 950000,
-    monthlyPrice: 2800000,
+    monthlyPrice: 3000000,
     featured: true,
   },
   {
@@ -135,7 +135,7 @@ export const VEHICLE_CATEGORIES: VehicleCategory[] = [
     imageFile: 'PCX.webp',
     dailyPrice: 150000,
     weeklyPrice: 950000,
-    monthlyPrice: 2800000,
+    monthlyPrice: 3000000,
     featured: false,
   },
   {
@@ -147,8 +147,8 @@ export const VEHICLE_CATEGORIES: VehicleCategory[] = [
     specsId: 'Retro Ringan · 2 Helm · Charger USB',
     imageFile: 'Scoopy.webp',
     dailyPrice: 85000,
-    weeklyPrice: 520000,
-    monthlyPrice: 1500000,
+    weeklyPrice: 550000,
+    monthlyPrice: 1800000,
   },
   {
     id: 'vario',
@@ -170,9 +170,9 @@ export const VEHICLE_CATEGORIES: VehicleCategory[] = [
     specsEn: 'Hybrid Classic · 2 Helmets · LED',
     specsId: 'Klasik Hybrid · 2 Helm · Lampu LED',
     imageFile: 'Fazzio.webp',
-    dailyPrice: 90000,
-    weeklyPrice: 560000,
-    monthlyPrice: 1600000,
+    dailyPrice: 120000,
+    weeklyPrice: 750000,
+    monthlyPrice: 2500000,
   },
 ];
 
