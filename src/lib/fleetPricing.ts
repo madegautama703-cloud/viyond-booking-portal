@@ -2,9 +2,9 @@ import type { VehicleCategory } from '@/config/siteConfig';
 
 /**
  * Helpers shared by the live-inventory API route and the booking wizard so that
- * tariffs from the Google Sheets / n8n payload are read accurately
- * (numbers, "Rp 150.000", "150,000", alias column names, etc.) and are never
- * silently replaced by a lower fallback.
+ * tariffs & ready-unit counts from Google Sheets / n8n are read accurately
+ * (case-insensitive column names like Harga_Harian, Harga_Mingguan, Harga_Bulanan,
+ * READY, numbers, "Rp 150.000", "150,000", etc.) without being overwritten by static defaults.
  */
 
 /** Parse a price coming from Google Sheets / n8n into a positive integer (IDR). */
@@ -36,9 +36,17 @@ export function parseSheetPrice(value: unknown): number | undefined {
   return Number.isFinite(num) && num > 0 ? num : undefined;
 }
 
-function pick(m: Record<string, any>, keys: string[]): unknown {
-  for (const k of keys) {
-    if (m[k] !== undefined && m[k] !== null && m[k] !== '') return m[k];
+const normKey = (k: string) => k.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/** Case-insensitive & separator-insensitive field picker for Google Sheets / n8n rows. */
+export function pickFieldCI(m: Record<string, any>, candidateKeys: string[]): unknown {
+  if (!m || typeof m !== 'object') return undefined;
+  const normalizedTargets = new Set(candidateKeys.map(normKey));
+  for (const [k, v] of Object.entries(m)) {
+    if (v === undefined || v === null || v === '') continue;
+    if (normalizedTargets.has(normKey(k))) {
+      return v;
+    }
   }
   return undefined;
 }
@@ -49,29 +57,96 @@ export interface ParsedTariff {
   monthlyPrice?: number;
 }
 
-/** Read daily / weekly / monthly tariffs from a raw sheet row (supports alias columns). */
+/** Read daily / weekly / monthly tariffs from a raw sheet row (supports Harga_Harian, dailyPrice, etc.). */
 export function extractTariff(m: Record<string, any>): ParsedTariff {
   return {
     dailyPrice: parseSheetPrice(
-      pick(m, ['dailyPrice', 'daily_price', 'hargaHarian', 'harga_harian', 'priceDaily', 'price_daily', 'daily', 'harian', 'Harga Harian'])
+      pickFieldCI(m, [
+        'dailyPrice',
+        'daily_price',
+        'Harga_Harian',
+        'hargaHarian',
+        'harga_harian',
+        'priceDaily',
+        'daily',
+        'harian',
+      ])
     ),
     weeklyPrice: parseSheetPrice(
-      pick(m, ['weeklyPrice', 'weekly_price', 'hargaMingguan', 'harga_mingguan', 'priceWeekly', 'price_weekly', 'weekly', 'mingguan', 'Harga Mingguan'])
+      pickFieldCI(m, [
+        'weeklyPrice',
+        'weekly_price',
+        'Harga_Mingguan',
+        'hargaMingguan',
+        'harga_mingguan',
+        'priceWeekly',
+        'weekly',
+        'mingguan',
+      ])
     ),
     monthlyPrice: parseSheetPrice(
-      pick(m, ['monthlyPrice', 'monthly_price', 'hargaBulanan', 'harga_bulanan', 'priceMonthly', 'price_monthly', 'monthly', 'bulanan', 'Harga Bulanan'])
+      pickFieldCI(m, [
+        'monthlyPrice',
+        'monthly_price',
+        'Harga_Bulanan',
+        'hargaBulanan',
+        'harga_bulanan',
+        'priceMonthly',
+        'monthly',
+        'bulanan',
+      ])
     ),
   };
 }
 
+/** Extract READY unit count from a raw n8n / Google Sheets row. */
+export function extractReadyCount(m: Record<string, any>): number {
+  const statusRaw = pickFieldCI(m, ['status', 'status_unit', 'Status']);
+  const statusUpper = String(statusRaw || '').trim().toUpperCase();
+  if (['SOLD_OUT', 'SOLDOUT', 'DISEWA', 'BENGKEL'].includes(statusUpper)) {
+    return 0;
+  }
+
+  const rawCount = pickFieldCI(m, [
+    'availableCount',
+    'availableUnits',
+    'readyUnits',
+    'READY',
+    'ready',
+    'readyCount',
+    'jumlahReady',
+    'stokReady',
+    'stock',
+    'stok',
+    'tersedia',
+    'count',
+  ]);
+
+  if (rawCount !== undefined && rawCount !== null && rawCount !== '') {
+    const parsed = Number(String(rawCount).replace(/[^\d.-]/g, ''));
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, Math.round(parsed));
+    }
+  }
+
+  return statusUpper === 'READY' ? 1 : 0;
+}
+
 const norm = (s: unknown) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-/** Strict category matcher (never matches on an empty name). */
+/** Strict category matcher (supports category, name, title, Nama_Motor, Kategori, model, etc.). */
 export function motorMatchesCategory(m: Record<string, any>, cat: VehicleCategory): boolean {
   const id = norm(cat.id);
   const fullName = norm(cat.name);
   const shortName = norm(cat.shortName);
-  const candidates = [m.id, m.categoryId, m.category, m.name, m.title]
+  const candidates = [
+    m.id,
+    m.categoryId,
+    m.category,
+    m.name,
+    m.title,
+    pickFieldCI(m, ['Nama_Motor', 'namaMotor', 'Kategori', 'kategori', 'model', 'tipe', 'unit']),
+  ]
     .map(norm)
     .filter((c) => c.length >= 3);
 

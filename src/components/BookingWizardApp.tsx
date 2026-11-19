@@ -24,7 +24,7 @@ import {
   CompressedImageResult,
 } from '@/lib/imageCompression';
 import { BookingOrderRecord } from '@/lib/masterDbStore';
-import { applyTariff, motorMatchesCategory } from '@/lib/fleetPricing';
+import { applyTariff, extractReadyCount, motorMatchesCategory } from '@/lib/fleetPricing';
 import { UatControlConsole } from '@/components/UatControlConsole';
 import { CameraCaptureModal } from '@/components/CameraCaptureModal';
 import { DesktopShowroom } from '@/components/showroom/DesktopShowroom';
@@ -138,11 +138,13 @@ export function BookingWizardApp() {
   }, [isShowcase]);
 
   const goToStep = (step: 1 | 2 | 3) => {
+    const isWni = nationality.trim().toLowerCase() === 'indonesia';
+    const requiredKeys: ReadonlyArray<'passport' | 'selfie' | 'flight' | 'hotel'> = isWni
+      ? ['passport', 'selfie']
+      : ['passport', 'selfie', 'flight', 'hotel'];
     const kycAllVerified =
       isExtendMode ||
-      (['passport', 'selfie', 'flight', 'hotel'] as const).every(
-        (key) => kycDocs[key]?.status === 'verified'
-      );
+      requiredKeys.every((key) => kycDocs[key]?.status === 'verified');
     const targetStep: 1 | 2 | 3 = step === 3 && !kycAllVerified ? 2 : step;
 
     setActiveStep(targetStep);
@@ -444,26 +446,7 @@ export function BookingWizardApp() {
           const matched = incomingMotors.find((m: any) => motorMatchesCategory(m, cat));
 
           if (matched) {
-            const statusUpper = String(matched.status || '').trim().toUpperCase();
-            const rawCount =
-              matched.availableUnits ??
-              matched.availableCount ??
-              matched.readyUnits ??
-              matched.stock ??
-              matched.count;
-
-            let count = 0;
-            if (rawCount !== undefined && rawCount !== null) {
-              count = Number(rawCount) || 0;
-            } else if (statusUpper === 'READY') {
-              count = 2;
-            }
-
-            // Jika status eksplisit Sold Out / Sedang Disewa / Di Bengkel
-            if (['SOLD_OUT', 'SOLDOUT', 'DISEWA', 'BENGKEL'].includes(statusUpper)) {
-              count = 0;
-            }
-
+            const count = extractReadyCount(matched);
             const isAvailable = count > 0;
 
             return {
@@ -1747,10 +1730,10 @@ export function BookingWizardApp() {
         )}
       </div>
 
-      {/* Floating Transparent Watermark: Powered by Viyond */}
-      <div className="fixed bottom-24 left-4 lg:bottom-6 lg:left-6 z-40 pointer-events-auto">
+      {/* Floating Transparent Watermark: Powered by Viyond (pointer-events-none so it never blocks buttons) */}
+      <div className="fixed bottom-24 left-4 lg:bottom-6 lg:left-6 z-30 pointer-events-none">
         <div
-          className="inline-flex items-center gap-2 rounded-full bg-black/40 hover:bg-black/55 backdrop-blur-md border border-white/15 px-3.5 py-1.5 text-[11px] font-medium text-white/75 shadow-[0_8px_24px_rgba(0,0,0,0.28)] transition-all duration-200 select-none"
+          className="inline-flex items-center gap-2 rounded-full bg-black/40 backdrop-blur-md border border-white/15 px-3.5 py-1.5 text-[11px] font-medium text-white/75 shadow-[0_8px_24px_rgba(0,0,0,0.28)] select-none"
           aria-label="Powered by Viyond"
         >
           <span className="text-white/60">Powered by</span>
@@ -1764,9 +1747,9 @@ export function BookingWizardApp() {
         </div>
       </div>
 
-      {/* Floating Action Button: Ask CS (Direct WhatsApp button, transparent glassmorphism, hidden on Step 3) */}
-      {activeStep !== 3 && (
-        <div className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-40 pointer-events-auto">
+      {/* Floating Action Button: Ask CS (shown only on Step 1 so it never covers Continue to Payment or Submit on Step 2/3) */}
+      {activeStep === 1 && (
+        <div className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-30 pointer-events-auto">
           <a
             href={`https://wa.me/${(siteConfig.whatsappNumber || '6281239998877').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
               lang === 'id'

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { masterDb } from '@/lib/masterDbStore';
 import { INITIAL_INVENTARIS_MOTOR, VEHICLE_CATEGORIES, VehicleCategory } from '@/config/siteConfig';
-import { applyTariff, motorMatchesCategory } from '@/lib/fleetPricing';
+import { applyTariff, extractReadyCount, motorMatchesCategory, pickFieldCI } from '@/lib/fleetPricing';
 
 // Production n8n GET Webhook URL
 const PRODUCTION_N8N_WEBHOOK_URL =
@@ -43,34 +43,15 @@ function mapMotorsToCategories(motors: RawMotorItem[]): EnrichedCategory[] {
     const matched = motors.find((m) => motorMatchesCategory(m as any, cat));
 
     if (matched) {
-      const statusUpper = String(matched.status || '').trim().toUpperCase();
-      const rawCount =
-        matched.availableCount ??
-        matched.availableUnits ??
-        matched.readyUnits ??
-        matched.stock;
-      let count = 0;
-
-      if (rawCount !== undefined && rawCount !== null) {
-        count = Number(rawCount) || 0;
-      } else if (statusUpper === 'READY') {
-        count = 2;
-      }
-
-      // If status is explicitly marked as unavailable/sold out/rented/bengkel
-      if (['SOLD_OUT', 'SOLDOUT', 'DISEWA', 'BENGKEL'].includes(statusUpper)) {
-        count = 0;
-      }
-
+      const count = extractReadyCount(matched as any);
       const isAvailable = count > 0;
+      const rawTotal = pickFieldCI(matched as any, ['totalUnits', 'total_units', 'total', 'jumlahUnit']);
 
-      // Tariffs always come from the live Google Sheets / n8n row (official defaults only if missing)
+      // Tariffs & ready counts come directly from the live Google Sheets / n8n row
       return {
         ...applyTariff(cat, matched as any),
         availableUnits: count,
-        totalFleetUnits: matched.totalUnits
-          ? Number(matched.totalUnits)
-          : Math.max(count, 3),
+        totalFleetUnits: rawTotal ? Number(rawTotal) || Math.max(count, 3) : Math.max(count, 3),
         isAvailable,
       };
     }
@@ -174,21 +155,39 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Normalize standard n8n response structures:
-    // 1. { motors: [...] }
-    // 2. [ { motors: [...] } ]
-    // 3. [ { json: { motors: [...] } } ]
-    // 4. Raw array of motors: [ { category: "NMAX", ... } ]
-    // 5. { categories: [...] }
+    // Normalize standard n8n / Google Sheets response structures
     let incomingData = rawPayload;
+    const isMotorRow = (row: any) =>
+      row &&
+      typeof row === 'object' &&
+      !Array.isArray(row.motors) &&
+      !Array.isArray(row.categories) &&
+      Boolean(
+        pickFieldCI(row, [
+          'category',
+          'name',
+          'Nama_Motor',
+          'Kategori',
+          'Harga_Harian',
+          'dailyPrice',
+          'READY',
+          'availableCount',
+          'availableUnits',
+          'stock',
+        ]) !== undefined
+      );
+
     if (Array.isArray(rawPayload) && rawPayload.length > 0) {
-      if (rawPayload[0].category || rawPayload[0].availableCount !== undefined) {
-        incomingData = { motors: rawPayload };
+      const unwrapped = rawPayload.map((item: any) => (item && item.json ? item.json : item));
+      if (isMotorRow(unwrapped[0])) {
+        incomingData = { motors: unwrapped };
       } else {
-        incomingData = rawPayload[0].json || rawPayload[0];
+        incomingData = unwrapped[0];
       }
     } else if (rawPayload?.data) {
-      incomingData = rawPayload.data;
+      incomingData = Array.isArray(rawPayload.data)
+        ? { motors: rawPayload.data }
+        : rawPayload.data;
     }
 
     if (incomingData?.motors && Array.isArray(incomingData.motors)) {

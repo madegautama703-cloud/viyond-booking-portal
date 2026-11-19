@@ -631,7 +631,7 @@ function MobileDetailSheet({ vm }: { vm: ShowroomViewModel }) {
 
 function MobileStickyBottomBar({ vm }: { vm: ShowroomViewModel }) {
   return (
-    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[#EEF0F2] bg-white/95 px-5 pb-[max(env(safe-area-inset-bottom),14px)] pt-3 backdrop-blur-md shadow-[0_-8px_24px_rgba(20,23,31,0.06)]">
+    <div className="fixed inset-x-0 bottom-0 z-50 border-t border-[#EEF0F2] bg-white/95 px-5 pb-[max(env(safe-area-inset-bottom),14px)] pt-3 backdrop-blur-md shadow-[0_-8px_24px_rgba(20,23,31,0.06)]">
       <div className="mx-auto flex max-w-xl items-center justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#6B7280]">
