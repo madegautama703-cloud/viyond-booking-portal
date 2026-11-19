@@ -232,10 +232,19 @@ function MobileCatalogSheet({ vm }: { vm: ShowroomViewModel }) {
                   type="text"
                   value={vm.hotelAndRoom}
                   onChange={(e) => vm.setHotelAndRoom(e.target.value)}
-                  placeholder={t.hotelVillaRoom}
+                  placeholder={
+                    vm.selectedZoneId === 'ZONA-LAINNYA'
+                      ? 'Tuliskan alamat lengkap pengantaran Anda...'
+                      : t.hotelVillaRoom
+                  }
                   className="min-w-0 flex-1 bg-transparent text-[13px] font-medium text-[#14171F] placeholder:text-[#9CA3AF] focus:outline-none"
                 />
               </div>
+              {vm.selectedZoneId === 'ZONA-LAINNYA' && (
+                <p className="mt-1.5 text-[11px] font-medium text-amber-700">
+                  Ongkir akan dikonfirmasi admin via WA. Pastikan alamat lengkap diisi.
+                </p>
+              )}
             </div>
 
             <div>

@@ -348,7 +348,7 @@ function FloatingAssistantPanel({ vm }: { vm: ShowroomViewModel }) {
     {
       icon: ScanFace,
       title: 'Instant AI KYC',
-      sub: `${vm.validatedDocCount}/4 ${lang === 'id' ? 'Dokumen' : 'Verified'}`,
+      sub: `${vm.validatedDocCount}/${vm.requiredDocTotal} ${lang === 'id' ? 'Dokumen' : 'Verified'}`,
       active: false,
       onClick: () => vm.goToStep(2),
     },
@@ -420,9 +420,9 @@ function FloatingAssistantPanel({ vm }: { vm: ShowroomViewModel }) {
             <div className="text-right">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-[#D1FAE5] px-2.5 py-1 text-[11px] font-bold text-[#065F46]">
                 <ScanFace className="h-3.5 w-3.5 text-[#10B981]" />
-                {vm.validatedDocCount === 4
-                  ? (lang === 'id' ? '4/4 KYC Lengkap' : '4/4 KYC Verified')
-                  : `${vm.validatedDocCount}/4 ${lang === 'id' ? 'KYC Terisi' : 'KYC Verified'}`}
+                {vm.validatedDocCount === vm.requiredDocTotal
+                  ? `${vm.requiredDocTotal}/${vm.requiredDocTotal} ${lang === 'id' ? 'KYC Lengkap' : 'KYC Verified'}`
+                  : `${vm.validatedDocCount}/${vm.requiredDocTotal} ${lang === 'id' ? 'KYC Terisi' : 'KYC Verified'}`}
               </span>
               <div className="mt-0.5 text-[11px] font-semibold text-[#6B7280]">
                 ≈ ${priceBreakdown.approxUsd} USD
@@ -656,9 +656,18 @@ function LocationBento({ vm }: { vm: ShowroomViewModel }) {
             type="text"
             value={vm.hotelAndRoom}
             onChange={(e) => vm.setHotelAndRoom(e.target.value)}
-            placeholder={vm.t.hotelVillaRoom}
+            placeholder={
+              vm.selectedZoneId === 'ZONA-LAINNYA'
+                ? 'Tuliskan alamat lengkap pengantaran Anda...'
+                : vm.t.hotelVillaRoom
+            }
             className="w-full rounded-2xl bg-[#F4F5F6] px-3.5 py-2.5 text-[12px] font-medium text-[#14171F] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#10B981]/30"
           />
+          {vm.selectedZoneId === 'ZONA-LAINNYA' && (
+            <p className="px-1 text-[11px] font-medium text-amber-700">
+              Ongkir akan dikonfirmasi admin via WA. Pastikan alamat lengkap diisi.
+            </p>
+          )}
         </div>
       </div>
 

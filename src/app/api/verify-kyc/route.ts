@@ -5,6 +5,7 @@ type KycDocType = 'passport' | 'selfie' | 'ticket' | 'hotel';
 interface VerifyKycRequestBody {
   imageBase64?: string;
   docType?: string;
+  isTestDemo?: boolean;
 }
 
 interface ExtractedKycData {
@@ -21,7 +22,7 @@ interface VerifyKycResponse {
 
 const DOC_TYPE_CRITERIA: Record<KycDocType, string> = {
   passport:
-    'Dokumen harus berupa foto KTP, SIM, atau Paspor asli yang jelas dan tajam. Nama lengkap dan nomor identitas (NIK/No. SIM/No. Paspor) harus terbaca dengan jelas, tidak buram, tidak tertutup pantulan cahaya (glare), dan bukan foto acak/layar buram.',
+    'Dokumen harus berupa foto KTP Indonesia (e-KTP), SIM A/C Indonesia, atau Paspor asli (WNI/WNA) yang jelas dan tajam. Nama lengkap dan nomor identitas (NIK/No. SIM/No. Paspor) harus terbaca dengan jelas, tidak buram, tidak tertutup pantulan cahaya (glare), dan bukan foto acak/layar buram. KTP, SIM, dan Paspor semuanya diterima sebagai identitas yang sah.',
   selfie:
     'Foto harus memperlihatkan wajah seseorang secara jelas yang sedang memegang kartu identitas (KTP/SIM/Paspor). Baik wajah maupun kartu identitas harus terlihat jelas.',
   ticket:
@@ -44,6 +45,22 @@ function normalizeImageDataUrl(raw: string): string {
 
 export async function POST(req: NextRequest) {
   try {
+    const body = (await req.json()) as VerifyKycRequestBody;
+    const { imageBase64, docType, isTestDemo } = body;
+
+    // UAT Demo bypass: return verified test data immediately without calling OpenAI Vision
+    if (isTestDemo === true) {
+      return NextResponse.json({
+        valid: true,
+        reason: 'Data uji UAT terverifikasi',
+        extractedData: {
+          nama: 'MADE GAUTAMA (TEST)',
+          nomor_id: '5171012345670001',
+          negara: 'Indonesia',
+        },
+      });
+    }
+
     const apiKey = process.env.OPENAI_API_KEY?.trim();
     if (!apiKey) {
       return NextResponse.json(
@@ -55,9 +72,6 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       );
     }
-
-    const body = (await req.json()) as VerifyKycRequestBody;
-    const { imageBase64, docType } = body;
 
     if (!imageBase64 || typeof imageBase64 !== 'string') {
       return NextResponse.json(

@@ -481,7 +481,12 @@ export function BookingWizardApp() {
             labelId: z.name || z.labelId || z.code,
             areaNames: z.coverage || z.areaNames || '',
           }));
-          setZones(normalizedZones);
+          const extraZones = INITIAL_ZONA_ONGKIR.filter(
+            (iz) =>
+              (iz.code === 'PICKUP' || iz.code === 'ZONA-LAINNYA') &&
+              !normalizedZones.some((nz) => nz.code.toUpperCase() === iz.code)
+          );
+          setZones([...normalizedZones, ...extraZones]);
         }
 
         // Sinkronisasi data inventaris internal untuk konsol UAT drawer
@@ -730,15 +735,93 @@ export function BookingWizardApp() {
     }
   };
 
-  // Count validated KYC documents
+  // Handle zone selection with auto-fill for Pick Up Langsung
+  const handleSelectZone = (zoneId: string) => {
+    setSelectedZoneId(zoneId);
+    if (zoneId === 'PICKUP') {
+      setHotelAndRoom('Pick Up Langsung di Garasi VIYOND');
+    } else if (hotelAndRoom === 'Pick Up Langsung di Garasi VIYOND') {
+      setHotelAndRoom('');
+    }
+  };
+
+  // UAT Demo KYC Bypass: calls /api/verify-kyc with isTestDemo: true
+  const handleFillDemoKycDocs = async () => {
+    const demoPlaceholderPng =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    try {
+      const res = await fetch('/api/verify-kyc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          isTestDemo: true,
+          docType: 'passport',
+          imageBase64: demoPlaceholderPng,
+        }),
+      });
+      const data = await res.json();
+      const reason = data?.reason || 'Data uji UAT terverifikasi';
+      const extractedNama = data?.extractedData?.nama || 'MADE GAUTAMA (TEST)';
+      const extractedNegara = data?.extractedData?.negara || 'Indonesia';
+      const extractedId = data?.extractedData?.nomor_id || '5171012345670001';
+
+      if (!fullName.trim()) setFullName(extractedNama);
+      if (!nationality.trim()) setNationality(extractedNegara);
+
+      setKycDocs((prev) => ({
+        ...prev,
+        passport: {
+          ...prev.passport,
+          status: 'verified',
+          fileName: 'uat_demo_ktp.png',
+          compressedKb: 12,
+          ocrName: extractedNama,
+          ocrNumber: extractedId,
+          ocrMessage: reason,
+          base64Data: demoPlaceholderPng,
+        },
+        selfie: {
+          ...prev.selfie,
+          status: 'verified',
+          fileName: 'uat_demo_selfie.png',
+          compressedKb: 12,
+          ocrMessage: reason,
+          base64Data: demoPlaceholderPng,
+        },
+        flight: {
+          ...prev.flight,
+          status: 'verified',
+          fileName: 'uat_demo_flight.png',
+          compressedKb: 12,
+          ocrMessage: reason,
+          base64Data: demoPlaceholderPng,
+        },
+        hotel: {
+          ...prev.hotel,
+          status: 'verified',
+          fileName: 'uat_demo_hotel.png',
+          compressedKb: 12,
+          ocrMessage: reason,
+          base64Data: demoPlaceholderPng,
+        },
+      }));
+    } catch (err) {
+      console.error('[UAT Demo KYC] Failed:', err);
+    }
+  };
+
+  // Count validated KYC documents (WNI only requires passport + selfie; WNA requires all 4)
+  const isLocalWni = nationality.trim().toLowerCase() === 'indonesia';
+  const requiredDocKeys: ReadonlyArray<'passport' | 'selfie' | 'flight' | 'hotel'> = isLocalWni
+    ? ['passport', 'selfie']
+    : ['passport', 'selfie', 'flight', 'hotel'];
+  const requiredDocTotal = isExtendMode ? 4 : requiredDocKeys.length;
   const validatedDocCount = isExtendMode
     ? 4
-    : Object.values(kycDocs).filter((d) => d.status === 'verified').length;
+    : requiredDocKeys.filter((key) => kycDocs[key]?.status === 'verified').length;
   const canProceedToPayment =
     isExtendMode ||
-    (['passport', 'selfie', 'flight', 'hotel'] as const).every(
-      (key) => kycDocs[key]?.status === 'verified'
-    );
+    requiredDocKeys.every((key) => kycDocs[key]?.status === 'verified');
   const isPassportBlurry = kycDocs.passport.status === 'blurry' || kycDocs.passport.status === 'rejected';
 
   // Submit Booking to n8n Endpoint 2 (POST /api/n8n/create-booking)
@@ -782,7 +865,11 @@ export function BookingWizardApp() {
       missing.push('Pilih zona antar terlebih dahulu');
     }
 
-    // Validate 4 Mandatory KYC documents (bypassed in Extend mode)
+    if (selectedZone?.code === 'ZONA-LAINNYA' && (!hotelAndRoom || !hotelAndRoom.trim())) {
+      missing.push('Alamat Lengkap Pengantaran (Wajib diisi untuk Zona Lainnya)');
+    }
+
+    // Validate Mandatory KYC documents (bypassed in Extend mode; WNI only requires KTP/SIM + Selfie)
     const passportSlot = kycDocs.passport;
     const selfieSlot = kycDocs.selfie;
     const flightSlot = kycDocs.flight;
@@ -796,7 +883,11 @@ export function BookingWizardApp() {
         passportSlot.status === 'verified'
       );
       if (!isPassportFilled) {
-        missing.push('Foto Paspor / KTP (Wajib diunggah & terverifikasi AI)');
+        missing.push(
+          isLocalWni
+            ? 'Foto KTP / SIM / Paspor (Wajib diunggah & terverifikasi AI)'
+            : 'Foto Paspor / KTP (Wajib diunggah & terverifikasi AI)'
+        );
       }
 
       const isSelfieFilled = Boolean(
@@ -806,27 +897,33 @@ export function BookingWizardApp() {
         selfieSlot.status === 'verified'
       );
       if (!isSelfieFilled) {
-        missing.push('Foto Selfie dengan Paspor / KTP (Wajib diunggah & terverifikasi AI)');
+        missing.push(
+          isLocalWni
+            ? 'Foto Selfie dengan KTP / SIM (Wajib diunggah & terverifikasi AI)'
+            : 'Foto Selfie dengan Paspor / KTP (Wajib diunggah & terverifikasi AI)'
+        );
       }
 
-      const isFlightFilled = Boolean(
-        flightSlot?.fileName &&
-        !flightSlot.fileName.startsWith('Upload ') &&
-        flightSlot.fileName.trim().length > 3 &&
-        flightSlot.status === 'verified'
-      );
-      if (!isFlightFilled) {
-        missing.push('Tiket Penerbangan Pulang / Return Flight Ticket (Wajib diunggah & terverifikasi AI)');
-      }
+      if (!isLocalWni) {
+        const isFlightFilled = Boolean(
+          flightSlot?.fileName &&
+          !flightSlot.fileName.startsWith('Upload ') &&
+          flightSlot.fileName.trim().length > 3 &&
+          flightSlot.status === 'verified'
+        );
+        if (!isFlightFilled) {
+          missing.push('Tiket Penerbangan Pulang / Return Flight Ticket (Wajib diunggah & terverifikasi AI)');
+        }
 
-      const isHotelFilled = Boolean(
-        hotelSlot?.fileName &&
-        !hotelSlot.fileName.startsWith('Upload ') &&
-        hotelSlot.fileName.trim().length > 3 &&
-        hotelSlot.status === 'verified'
-      );
-      if (!isHotelFilled) {
-        missing.push('Bukti Booking Hotel / Villa di Bali (Wajib diunggah & terverifikasi AI)');
+        const isHotelFilled = Boolean(
+          hotelSlot?.fileName &&
+          !hotelSlot.fileName.startsWith('Upload ') &&
+          hotelSlot.fileName.trim().length > 3 &&
+          hotelSlot.status === 'verified'
+        );
+        if (!isHotelFilled) {
+          missing.push('Bukti Booking Hotel / Villa di Bali (Wajib diunggah & terverifikasi AI)');
+        }
       }
     }
 
@@ -884,10 +981,14 @@ export function BookingWizardApp() {
     // Standardize nationality to country name only (e.g. "Australia")
     const cleanNationality = nationality ? nationality.split('(')[0].trim() : 'Australia';
 
-    // Standardize zone to code only (ZONA-1 / ZONA-2 / ZONA-3)
-    const getZoneCode = (z?: DeliveryZone | null): 'ZONA-1' | 'ZONA-2' | 'ZONA-3' => {
+    // Standardize zone code (ZONA-1 / ZONA-2 / ZONA-3 / PICKUP / ZONA-LAINNYA)
+    const getZoneCode = (
+      z?: DeliveryZone | null
+    ): 'ZONA-1' | 'ZONA-2' | 'ZONA-3' | 'PICKUP' | 'ZONA-LAINNYA' => {
       if (!z?.code) return 'ZONA-2';
       const text = String(z.code).toUpperCase();
+      if (text === 'PICKUP' || text.includes('PICKUP')) return 'PICKUP';
+      if (text === 'ZONA-LAINNYA' || text.includes('LAINNYA')) return 'ZONA-LAINNYA';
       if (text.includes('1')) return 'ZONA-1';
       if (text.includes('3')) return 'ZONA-3';
       return 'ZONA-2';
@@ -904,7 +1005,7 @@ export function BookingWizardApp() {
     };
     const cleanPaymentMethod = getCleanPaymentMethod(paymentMethod);
 
-    // 4 KYC file names array (empty in Extend mode when reusing previous KYC)
+    // KYC file names array (empty in Extend mode; filters out optional empty slots for WNI)
     const kycFiles = isExtendMode
       ? []
       : [
@@ -912,7 +1013,7 @@ export function BookingWizardApp() {
           selfieSlot.fileName.trim(),
           flightSlot.fileName.trim(),
           hotelSlot.fileName.trim(),
-        ];
+        ].filter(Boolean);
 
     const formattedWhatsapp = whatsappLocal.trim().startsWith('+')
       ? whatsappLocal.trim()
@@ -1334,7 +1435,7 @@ export function BookingWizardApp() {
     zones,
     selectedZone,
     selectedZoneId,
-    setSelectedZoneId,
+    setSelectedZoneId: handleSelectZone,
     hotelAndRoom,
     setHotelAndRoom,
     deliveryTime,
@@ -1354,9 +1455,11 @@ export function BookingWizardApp() {
     setPdpAgreed,
     kycDocs: kycDocs as ShowroomViewModel['kycDocs'],
     validatedDocCount,
+    requiredDocTotal,
     canProceedToPayment,
     openCamera,
     openFilePicker,
+    fillDemoKycDocs: handleFillDemoKycDocs,
     paymentMethod,
     setPaymentMethod,
     isSubmittingBooking,

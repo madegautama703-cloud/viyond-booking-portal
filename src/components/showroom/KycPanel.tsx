@@ -12,7 +12,7 @@ const SLOT_ICONS: Record<KycSlotKey, React.ComponentType<{ className?: string }>
   hotel: Hotel,
 };
 
-function DocStatus({ doc }: { doc: ShowroomKycDoc }) {
+function DocStatus({ doc, optional = false }: { doc: ShowroomKycDoc; optional?: boolean }) {
   const isVerifying = doc.status === 'verifying' || doc.status === 'compressing';
   const map = {
     verified: { cls: 'bg-[#D1FAE5] text-[#065F46]', dot: 'bg-[#10B981]', label: 'VERIFIED' },
@@ -20,7 +20,9 @@ function DocStatus({ doc }: { doc: ShowroomKycDoc }) {
     compressing: { cls: 'bg-amber-100 text-amber-800', dot: 'bg-amber-500 animate-pulse', label: 'Memeriksa AI...' },
     rejected: { cls: 'bg-rose-100 text-rose-700', dot: 'bg-rose-500', label: 'TIDAK VALID / DITOLAK' },
     blurry: { cls: 'bg-rose-100 text-rose-700', dot: 'bg-rose-500', label: 'TIDAK VALID / DITOLAK' },
-    ready_to_upload: { cls: 'bg-[#F1F2F4] text-[#6B7280]', dot: 'bg-[#9CA3AF]', label: 'Required' },
+    ready_to_upload: optional
+      ? { cls: 'bg-[#EEF2FF] text-[#4338CA]', dot: 'bg-[#6366F1]', label: 'Opsional (WNI)' }
+      : { cls: 'bg-[#F1F2F4] text-[#6B7280]', dot: 'bg-[#9CA3AF]', label: 'Required' },
   }[doc.status];
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${map.cls}`}>
@@ -136,87 +138,120 @@ export function KycDocumentGrid({
     );
   }
 
+  const isLocalWni = vm.nationality.trim().toLowerCase() === 'indonesia';
+
   const slots: Array<{ key: KycSlotKey; title: string; cameraLabel: string }> = [
-    { key: 'passport', title: t.doc1Title, cameraLabel: vm.lang === 'id' ? 'Kamera' : 'Camera' },
-    { key: 'selfie', title: t.doc2Title, cameraLabel: 'Selfie' },
+    {
+      key: 'passport',
+      title: isLocalWni ? (vm.lang === 'id' ? '1. KTP / SIM / Paspor Asli' : '1. KTP / Driver License / Passport') : t.doc1Title,
+      cameraLabel: vm.lang === 'id' ? 'Kamera' : 'Camera',
+    },
+    {
+      key: 'selfie',
+      title: isLocalWni ? (vm.lang === 'id' ? '2. Selfie Memegang KTP / SIM' : '2. Selfie Holding KTP / ID') : t.doc2Title,
+      cameraLabel: 'Selfie',
+    },
     { key: 'flight', title: t.doc3Title, cameraLabel: vm.lang === 'id' ? 'Kamera' : 'Camera' },
     { key: 'hotel', title: t.doc4Title, cameraLabel: vm.lang === 'id' ? 'Kamera' : 'Camera' },
   ];
 
   return (
-    <div className={`grid gap-3 ${columns === 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
-      {slots.map(({ key, title, cameraLabel }) => {
-        const doc = vm.kycDocs[key];
-        const Icon = SLOT_ICONS[key];
-        const isRejected = doc?.status === 'rejected' || doc?.status === 'blurry';
-        const isVerifying = doc?.status === 'verifying' || doc?.status === 'compressing';
-        const hasFile = doc && doc.status !== 'ready_to_upload';
-        return (
-          <div
-            key={key}
-            className={`rounded-2xl border p-4 transition-colors ${
-              isRejected
-                ? 'border-rose-200 bg-rose-50/70'
-                : isVerifying
-                ? 'border-amber-200 bg-amber-50/40'
-                : 'border-[#EEF0F2] bg-[#F7F8F9]'
-            }`}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white shadow-sm border border-[#EEF0F2]">
-                <Icon className="h-4 w-4 text-[#14171F]" />
-              </div>
-              {doc && <DocStatus doc={doc} />}
-            </div>
-            <div className="mt-3 text-[13px] font-semibold leading-snug text-[#14171F]">
-              {title.replace(/^\d\.\s*/, '')}
-            </div>
-            <p
-              className={`mt-1 text-[11px] leading-snug ${
-                isRejected ? 'font-medium text-rose-700' : 'line-clamp-2 text-[#6B7280]'
+    <div className="space-y-3">
+      <div className={`grid gap-3 ${columns === 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+        {slots.map(({ key, title, cameraLabel }) => {
+          const doc = vm.kycDocs[key];
+          const Icon = SLOT_ICONS[key];
+          const isOptional = isLocalWni && (key === 'flight' || key === 'hotel');
+          const isRejected = doc?.status === 'rejected' || doc?.status === 'blurry';
+          const isVerifying = doc?.status === 'verifying' || doc?.status === 'compressing';
+          const hasFile = doc && doc.status !== 'ready_to_upload';
+          return (
+            <div
+              key={key}
+              className={`rounded-2xl border p-4 transition-colors ${
+                isRejected
+                  ? 'border-rose-200 bg-rose-50/70'
+                  : isVerifying
+                  ? 'border-amber-200 bg-amber-50/40'
+                  : isOptional && !hasFile
+                  ? 'border-dashed border-[#D1D5DB] bg-[#F9FAFB]/80'
+                  : 'border-[#EEF0F2] bg-[#F7F8F9]'
               }`}
             >
-              {hasFile
-                ? `${doc.fileName}${doc.compressedKb ? ` · ${doc.compressedKb} KB` : ''}`
-                : doc?.ocrMessage}
-            </p>
-            {isVerifying && (
-              <p className="mt-1 flex items-center gap-1.5 text-[11px] font-medium text-amber-700">
-                <Loader2 className="h-3 w-3 animate-spin shrink-0" />
-                <span>Memeriksa AI...</span>
-              </p>
-            )}
-            {isRejected && doc?.ocrMessage && (
-              <p className="mt-1 text-[11px] leading-snug text-rose-600">
-                {doc.ocrMessage}{' '}
-                <span className="font-semibold underline">
-                  {vm.lang === 'id' ? 'Mohon unggah ulang.' : 'Please re-upload.'}
-                </span>
-              </p>
-            )}
-            <div className="mt-3 flex items-center gap-2">
-              <button
-                type="button"
-                disabled={isVerifying}
-                onClick={() => vm.openCamera(key)}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-[#14171F] px-3 py-2 text-[11px] font-semibold text-white transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white shadow-sm border border-[#EEF0F2]">
+                  <Icon className="h-4 w-4 text-[#14171F]" />
+                </div>
+                {doc && <DocStatus doc={doc} optional={isOptional} />}
+              </div>
+              <div className="mt-3 text-[13px] font-semibold leading-snug text-[#14171F]">
+                {title.replace(/^\d\.\s*/, '')}
+                {isOptional && (
+                  <span className="ml-1.5 text-[11px] font-medium text-[#6B7280]">
+                    (Opsional untuk WNI)
+                  </span>
+                )}
+              </div>
+              <p
+                className={`mt-1 text-[11px] leading-snug ${
+                  isRejected ? 'font-medium text-rose-700' : 'line-clamp-2 text-[#6B7280]'
+                }`}
               >
-                <Camera className="h-3.5 w-3.5" />
-                {cameraLabel}
-              </button>
-              <button
-                type="button"
-                disabled={isVerifying}
-                onClick={() => vm.openFilePicker(key)}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-white border border-[#E5E7EB] text-[#14171F] transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                aria-label={`Upload ${title}`}
-              >
-                <Upload className="h-3.5 w-3.5" />
-              </button>
+                {hasFile
+                  ? `${doc.fileName}${doc.compressedKb ? ` · ${doc.compressedKb} KB` : ''}`
+                  : isOptional
+                  ? 'Opsional untuk WNI — tidak wajib diunggah'
+                  : doc?.ocrMessage}
+              </p>
+              {isVerifying && (
+                <p className="mt-1 flex items-center gap-1.5 text-[11px] font-medium text-amber-700">
+                  <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                  <span>Memeriksa AI...</span>
+                </p>
+              )}
+              {isRejected && doc?.ocrMessage && (
+                <p className="mt-1 text-[11px] leading-snug text-rose-600">
+                  {doc.ocrMessage}{' '}
+                  <span className="font-semibold underline">
+                    {vm.lang === 'id' ? 'Mohon unggah ulang.' : 'Please re-upload.'}
+                  </span>
+                </p>
+              )}
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isVerifying}
+                  onClick={() => vm.openCamera(key)}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-[#14171F] px-3 py-2 text-[11px] font-semibold text-white transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <Camera className="h-3.5 w-3.5" />
+                  {cameraLabel}
+                </button>
+                <button
+                  type="button"
+                  disabled={isVerifying}
+                  onClick={() => vm.openFilePicker(key)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white border border-[#E5E7EB] text-[#14171F] transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  aria-label={`Upload ${title}`}
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
+
+      {/* UAT Demo Testing Bypass Button */}
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={vm.fillDemoKycDocs}
+          className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[#D1D5DB] bg-white px-3 py-1.5 text-[11px] font-medium text-[#4B5563] hover:border-[#10B981] hover:text-[#065F46] transition-colors cursor-pointer"
+        >
+          🧪 Isi Dokumen Uji (Mode Demo)
+        </button>
+      </div>
     </div>
   );
 }
@@ -241,17 +276,21 @@ export function PdpConsent({ vm }: { vm: ShowroomViewModel }) {
 }
 
 export function KycProgress({ vm }: { vm: ShowroomViewModel }) {
-  const pct = vm.isExtendMode ? 100 : Math.round((vm.validatedDocCount / 4) * 100);
+  const total = vm.isExtendMode ? 4 : vm.requiredDocTotal;
+  const pct = vm.isExtendMode ? 100 : Math.round((vm.validatedDocCount / total) * 100);
+  const isLocalWni = vm.nationality.trim().toLowerCase() === 'indonesia';
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between text-[11px] font-semibold text-[#6B7280]">
         <span>
           {vm.isExtendMode
             ? (vm.lang === 'id' ? 'Dokumen KYC (Dari Pesanan Sebelumnya)' : 'KYC Documents (From Previous Order)')
+            : isLocalWni
+            ? (vm.lang === 'id' ? 'Unggah 2 dokumen wajib WNI (KTP/SIM & Selfie)' : 'Upload 2 required local ID docs')
             : vm.t.upload4DocsTitle}
         </span>
         <span className="text-[#14171F]">
-          {vm.isExtendMode ? '4/4' : `${vm.validatedDocCount}/4`}
+          {vm.isExtendMode ? '4/4' : `${vm.validatedDocCount}/${total}`}
         </span>
       </div>
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#ECEEF0]">

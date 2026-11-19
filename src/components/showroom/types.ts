@@ -92,9 +92,11 @@ export interface ShowroomViewModel {
   setPdpAgreed: (v: boolean) => void;
   kycDocs: Record<string, ShowroomKycDoc>;
   validatedDocCount: number;
+  requiredDocTotal: number;
   canProceedToPayment: boolean;
   openCamera: (slot: KycSlotKey) => void;
   openFilePicker: (slot: KycSlotKey) => void;
+  fillDemoKycDocs: () => void;
 
   // Step 3 — payment & submission
   paymentMethod: PaymentMethod;
