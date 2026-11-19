@@ -76,6 +76,42 @@ interface KycDocSlotState {
   };
 }
 
+function getLocalIsoDate(offsetDays = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function normalizeNameTokens(raw: string): string[] {
+  const cleaned = raw
+    .toLowerCase()
+    .replace(/\b(mr|mrs|ms|miss|dr|prof|hj|h)\b\.?/g, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned ? cleaned.split(' ').filter((t) => t.length >= 2) : [];
+}
+
+function isKycNameMatch(inputName: string, docName: string): boolean {
+  const aTokens = normalizeNameTokens(inputName);
+  const bTokens = normalizeNameTokens(docName);
+  if (aTokens.length === 0 || bTokens.length === 0) return true;
+
+  const aJoined = aTokens.join(' ');
+  const bJoined = bTokens.join(' ');
+  if (aJoined.includes(bJoined) || bJoined.includes(aJoined)) return true;
+
+  const shorter = aTokens.length <= bTokens.length ? aTokens : bTokens;
+  const longerSet = new Set(aTokens.length <= bTokens.length ? bTokens : aTokens);
+  const matchedCount = shorter.filter((t) => longerSet.has(t)).length;
+
+  if (shorter.length === 1) return matchedCount === 1;
+  return matchedCount >= Math.min(2, shorter.length);
+}
+
 export function BookingWizardApp() {
   const searchParams = useSearchParams();
   const extendOrderId = (searchParams.get('extend') || '').trim();
@@ -130,9 +166,25 @@ export function BookingWizardApp() {
     }
   };
 
-  // Step 1 State: Dates, Catalog, Zone, Hotel
-  const [startDate, setStartDate] = useState<string>('2026-05-15');
-  const [endDate, setEndDate] = useState<string>('2026-05-22');
+  // Step 1 State: Dates, Catalog, Zone, Hotel (default today, never before today)
+  const todayIso = getLocalIsoDate(0);
+  const [startDate, setStartDate] = useState<string>(() => getLocalIsoDate(0));
+  const [endDate, setEndDate] = useState<string>(() => getLocalIsoDate(1));
+
+  const handleSetStartDate = (val: string) => {
+    if (!val) return;
+    const clamped = val < todayIso ? todayIso : val;
+    setStartDate(clamped);
+    if (endDate && clamped > endDate) {
+      setEndDate(clamped);
+    }
+  };
+
+  const handleSetEndDate = (val: string) => {
+    if (!val) return;
+    const minEnd = startDate && startDate >= todayIso ? startDate : todayIso;
+    setEndDate(val < minEnd ? minEnd : val);
+  };
   const [selectedCategoryId, setSelectedCategoryId] = useState<
     'nmax' | 'pcx' | 'scoopy' | 'vario' | 'fazzio'
   >('nmax');
@@ -257,9 +309,9 @@ export function BookingWizardApp() {
     nationality: '',
     categoryId: 'nmax',
     categoryName: 'Yamaha NMAX 155',
-    startDate: '2026-05-15',
-    endDate: '2026-05-22',
-    durationDays: 7,
+    startDate: getLocalIsoDate(0),
+    endDate: getLocalIsoDate(1),
+    durationDays: 1,
     zoneId: 'ZONA-2',
     zoneLabel: 'ZONA-2: Area Canggu & Jimbaran',
     hotelAndRoom: 'The Haven Suites Canggu — Room 204',
@@ -561,6 +613,32 @@ export function BookingWizardApp() {
       const ocrData = await ocrRes.json();
 
       if (ocrRes.ok && ocrData.valid === true) {
+        const extractedName = (ocrData.extractedData?.nama || '').trim();
+        const inputName = fullName.trim();
+
+        if (inputName && extractedName && !isKycNameMatch(inputName, extractedName)) {
+          const mismatchMsg =
+            lang === 'id'
+              ? `Nama pada dokumen (${extractedName}) tidak sesuai dengan Nama Lengkap di kolom Identity KYC Verification (${inputName}).`
+              : `Name on document (${extractedName}) does not match Full Name in Identity KYC Verification (${inputName}).`;
+          setKycDocs((prev) => ({
+            ...prev,
+            [slotId]: {
+              id: slotId,
+              status: 'rejected',
+              fileName: compressed.fileName,
+              compressedKb: compressed.compressedSizeKb,
+              originalKb: compressed.originalSizeKb,
+              base64Data: compressed.base64DataUrl,
+              extractedData: ocrData.extractedData,
+              ocrName: extractedName,
+              ocrNumber: ocrData.extractedData?.nomor_id || prev[slotId]?.ocrNumber,
+              ocrMessage: mismatchMsg,
+            },
+          }));
+          return;
+        }
+
         setKycDocs((prev) => ({
           ...prev,
           [slotId]: {
@@ -571,7 +649,7 @@ export function BookingWizardApp() {
             originalKb: compressed.originalSizeKb,
             base64Data: compressed.base64DataUrl,
             extractedData: ocrData.extractedData,
-            ocrName: ocrData.extractedData?.nama || prev[slotId]?.ocrName,
+            ocrName: extractedName || prev[slotId]?.ocrName,
             ocrNumber: ocrData.extractedData?.nomor_id || prev[slotId]?.ocrNumber,
             ocrMessage: ocrData.reason || 'Terverifikasi oleh AI',
           },
@@ -851,6 +929,8 @@ export function BookingWizardApp() {
 
     if (!startDate || !startDate.trim()) {
       missing.push('Tanggal Mulai Sewa (Start Date)');
+    } else if (startDate.trim() < todayIso) {
+      missing.push('Tanggal Mulai Sewa tidak boleh sebelum hari ini');
     }
 
     if (!endDate || !endDate.trim()) {
@@ -923,6 +1003,35 @@ export function BookingWizardApp() {
         );
         if (!isHotelFilled) {
           missing.push('Bukti Booking Hotel / Villa di Bali (Wajib diunggah & terverifikasi AI)');
+        }
+      }
+
+      // Cross-check extracted name on uploaded documents against Full Name input
+      if (fullName.trim()) {
+        const slotsToCheck: Array<{ key: 'passport' | 'flight' | 'hotel'; label: string }> = [
+          { key: 'passport', label: 'KTP / SIM / Paspor' },
+          ...(isLocalWni
+            ? []
+            : [
+                { key: 'flight' as const, label: 'Tiket Penerbangan' },
+                { key: 'hotel' as const, label: 'Bukti Hotel / Vila' },
+              ]),
+        ];
+        for (const item of slotsToCheck) {
+          const slot = kycDocs[item.key];
+          const docName = (slot?.extractedData?.nama || slot?.ocrName || '').trim();
+          if (slot?.status === 'verified' && docName && !isKycNameMatch(fullName, docName)) {
+            const mismatchMsg = `Nama pada ${item.label} (${docName}) tidak sesuai dengan kolom Nama Lengkap (${fullName.trim()}).`;
+            missing.push(mismatchMsg);
+            setKycDocs((prev) => ({
+              ...prev,
+              [item.key]: {
+                ...prev[item.key],
+                status: 'rejected',
+                ocrMessage: mismatchMsg,
+              },
+            }));
+          }
         }
       }
     }
@@ -1422,10 +1531,11 @@ export function BookingWizardApp() {
     extendOrderId,
     activeStep,
     goToStep,
+    minDate: todayIso,
     startDate,
-    setStartDate,
+    setStartDate: handleSetStartDate,
     endDate,
-    setEndDate,
+    setEndDate: handleSetEndDate,
     rentalDays,
     formatDisplayDate,
     categories,

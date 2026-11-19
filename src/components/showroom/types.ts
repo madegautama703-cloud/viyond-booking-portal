@@ -57,6 +57,7 @@ export interface ShowroomViewModel {
   goToStep: (step: StepNumber) => void;
 
   // Step 1 — dates, catalog, zone
+  minDate: string;
   startDate: string;
   setStartDate: (v: string) => void;
   endDate: string;

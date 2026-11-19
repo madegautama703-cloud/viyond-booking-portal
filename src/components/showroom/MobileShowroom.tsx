@@ -126,6 +126,7 @@ function MobileCatalogSheet({ vm }: { vm: ShowroomViewModel }) {
             <input
               type="date"
               value={vm.startDate}
+              min={vm.minDate}
               onChange={(e) => changeStart(e.target.value)}
               aria-label={t.startDate}
               className="min-w-0 flex-1 bg-transparent text-[12px] font-semibold text-[#14171F] focus:outline-none"

@@ -744,8 +744,12 @@ function DatesBento({ vm }: { vm: ShowroomViewModel }) {
           <BigCalendarTile
             badge={lang === 'id' ? 'MULAI SEWA' : 'START DATE'}
             iso={vm.startDate}
+            min={vm.minDate}
             inputRef={startRef}
-            onShift={(d) => changeStart(shiftIsoDate(vm.startDate, d))}
+            onShift={(d) => {
+              const next = shiftIsoDate(vm.startDate, d);
+              if (next >= vm.minDate) changeStart(next);
+            }}
             onChange={changeStart}
           />
           <BigCalendarTile
