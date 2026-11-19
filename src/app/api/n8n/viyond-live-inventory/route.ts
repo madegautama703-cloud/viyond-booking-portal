@@ -3,11 +3,30 @@ import { masterDb } from '@/lib/masterDbStore';
 import { INITIAL_INVENTARIS_MOTOR, VEHICLE_CATEGORIES, VehicleCategory } from '@/config/siteConfig';
 import { applyTariff, extractReadyCount, motorMatchesCategory, pickFieldCI } from '@/lib/fleetPricing';
 
-// Production n8n GET Webhook URL
-const PRODUCTION_N8N_WEBHOOK_URL =
-  process.env.N8N_GET_INVENTORY_WEBHOOK_URL ||
-  process.env.NEXT_PUBLIC_N8N_GET_INVENTORY_WEBHOOK_URL ||
-  'https://n8n.srv2075779.hstgr.cloud/webhook/viyond-live-inventory';
+export const dynamic = 'force-dynamic';
+
+function getN8nBaseUrl(): string {
+  return (process.env.N8N_WEBHOOK_BASE_URL || 'https://n8n.viyond.tech')
+    .trim()
+    .replace(/\/+$/, '');
+}
+
+function formatFetchError(err: unknown): { message: string; cause?: string } {
+  const message = err instanceof Error ? err.message : String(err);
+  let cause: string | undefined;
+  if (err instanceof Error && 'cause' in err && err.cause) {
+    if (err.cause instanceof Error) {
+      const code = (err.cause as { code?: string }).code;
+      cause = code ? `${err.cause.message} (${code})` : err.cause.message;
+    } else {
+      cause = String(err.cause);
+    }
+  }
+  return {
+    message: cause ? `${message} (cause: ${cause})` : message,
+    cause,
+  };
+}
 
 interface EnrichedCategory extends VehicleCategory {
   availableUnits: number;
@@ -77,12 +96,8 @@ export async function GET(req: NextRequest) {
   const url = req.nextUrl || new URL(req.url, 'http://localhost:3000');
   const searchParams = url.searchParams;
 
-  // NOTE: the target webhook is fixed server-side. A client-supplied ?endpoint= is intentionally
-  // ignored, otherwise the x-viyond-secret header could be forwarded to an arbitrary URL.
-  const rawRequestedEndpoint =
-    process.env.N8N_GET_INVENTORY_WEBHOOK_URL ||
-    process.env.NEXT_PUBLIC_N8N_GET_INVENTORY_WEBHOOK_URL ||
-    PRODUCTION_N8N_WEBHOOK_URL;
+  // Target webhook is fixed server-side using N8N_WEBHOOK_BASE_URL (default https://n8n.viyond.tech)
+  const rawRequestedEndpoint = `${getN8nBaseUrl()}/viyond-live-inventory`;
 
   const startDate = searchParams.get('startDate');
   const endDate = searchParams.get('endDate');
@@ -105,14 +120,13 @@ export async function GET(req: NextRequest) {
   // Pull real live data from Production n8n Webhook (no mock/dummy fallback on error)
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     const webhookHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
       Accept: 'application/json',
+      'x-viyond-secret': process.env.N8N_WEBHOOK_SECRET || '',
     };
-    if (process.env.N8N_WEBHOOK_SECRET) {
-      webhookHeaders['x-viyond-secret'] = process.env.N8N_WEBHOOK_SECRET;
-    }
 
     const n8nResponse = await fetch(requestedEndpoint, {
       method: 'GET',
@@ -188,11 +202,18 @@ export async function GET(req: NextRequest) {
       incomingData = Array.isArray(rawPayload.data)
         ? { motors: rawPayload.data }
         : rawPayload.data;
+    } else if (rawPayload?.inventory) {
+      incomingData = Array.isArray(rawPayload.inventory)
+        ? { motors: rawPayload.inventory }
+        : rawPayload.inventory;
     }
 
     if (incomingData?.motors && Array.isArray(incomingData.motors)) {
       rawIncomingMotors = incomingData.motors;
       categories = mapMotorsToCategories(incomingData.motors);
+    } else if (incomingData?.inventory && Array.isArray(incomingData.inventory)) {
+      rawIncomingMotors = incomingData.inventory;
+      categories = mapMotorsToCategories(incomingData.inventory);
     } else if (incomingData?.categories && Array.isArray(incomingData.categories)) {
       rawIncomingMotors = incomingData.categories;
       categories = mapMotorsToCategories(incomingData.categories);
@@ -234,19 +255,29 @@ export async function GET(req: NextRequest) {
         },
       }
     );
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('[API /api/n8n/viyond-live-inventory] Failed to reach n8n webhook:', errorMessage);
+  } catch (err) {
+    const { message: detailedError, cause } = formatFetchError(err);
+    console.error(
+      '[API /api/n8n/viyond-live-inventory] Failed to reach n8n webhook:',
+      requestedEndpoint,
+      detailedError
+    );
 
     return NextResponse.json(
       {
         success: false,
         status: 'bad_gateway',
-        message: `Failed to reach n8n inventory webhook: ${errorMessage}`,
-        error: errorMessage,
+        message: `Failed to reach n8n inventory webhook (${requestedEndpoint}): ${detailedError}`,
+        error: detailedError,
+        cause,
         webhookUrl: requestedEndpoint,
       },
-      { status: 502 }
+      {
+        status: 502,
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        },
+      }
     );
   }
 }

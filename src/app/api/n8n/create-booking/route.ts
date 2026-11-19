@@ -1,12 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { masterDb } from '@/lib/masterDbStore';
 
-// Endpoint 2 Webhook URL (Production n8n): POST /webhook/web-booking-kyc
-const PRODUCTION_CREATE_BOOKING_WEBHOOK_URL =
-  process.env.N8N_WEBHOOK_URL ||
-  process.env.N8N_CREATE_BOOKING_WEBHOOK_URL ||
-  process.env.N8N_WEB_BOOKING_WEBHOOK_URL ||
-  'https://n8n.srv2075779.hstgr.cloud/webhook/web-booking-kyc';
+export const dynamic = 'force-dynamic';
+
+function getN8nBaseUrl(): string {
+  return (process.env.N8N_WEBHOOK_BASE_URL || 'https://n8n.viyond.tech')
+    .trim()
+    .replace(/\/+$/, '');
+}
+
+function formatFetchError(err: unknown): { message: string; cause?: string } {
+  const message = err instanceof Error ? err.message : String(err);
+  let cause: string | undefined;
+  if (err instanceof Error && 'cause' in err && err.cause) {
+    if (err.cause instanceof Error) {
+      const code = (err.cause as { code?: string }).code;
+      cause = code ? `${err.cause.message} (${code})` : err.cause.message;
+    } else {
+      cause = String(err.cause);
+    }
+  }
+  return {
+    message: cause ? `${message} (cause: ${cause})` : message,
+    cause,
+  };
+}
 
 export async function POST(req: NextRequest) {
   const startTime = performance.now();
@@ -102,9 +120,11 @@ export async function POST(req: NextRequest) {
   const rawPm = String(payload.paymentMethod || '').toUpperCase();
   const isOnline = rawPm.includes('ONLINE') || rawPm.includes('INSTANT') || rawPm.includes('QRIS');
 
+  const targetWebhookUrl = `${getN8nBaseUrl()}/web-booking-kyc`;
+
   // Log incoming booking request in console
   console.log('[API /api/n8n/create-booking] === INCOMING BOOKING REQUEST ===');
-  console.log('[API /api/n8n/create-booking] Target n8n Webhook:', PRODUCTION_CREATE_BOOKING_WEBHOOK_URL);
+  console.log('[API /api/n8n/create-booking] Target n8n Webhook:', targetWebhookUrl);
   console.log('[API /api/n8n/create-booking] Payload:', JSON.stringify(payload, null, 2));
 
   try {
@@ -114,13 +134,11 @@ export async function POST(req: NextRequest) {
     const webhookHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: 'application/json',
+      'x-viyond-secret': process.env.N8N_WEBHOOK_SECRET || '',
     };
-    if (process.env.N8N_WEBHOOK_SECRET) {
-      webhookHeaders['x-viyond-secret'] = process.env.N8N_WEBHOOK_SECRET;
-    }
 
     // Forward request to n8n webhook with cache: 'no-store'
-    const n8nResponse = await fetch(PRODUCTION_CREATE_BOOKING_WEBHOOK_URL, {
+    const n8nResponse = await fetch(targetWebhookUrl, {
       method: 'POST',
       headers: webhookHeaders,
       cache: 'no-store',
@@ -196,7 +214,7 @@ export async function POST(req: NextRequest) {
         error: n8nErrorMessage,
         upstreamStatus: n8nResponse.status,
         upstreamResponse: responseData,
-        webhookUrl: PRODUCTION_CREATE_BOOKING_WEBHOOK_URL,
+        webhookUrl: targetWebhookUrl,
       },
       {
         status: 502,
@@ -205,20 +223,22 @@ export async function POST(req: NextRequest) {
         },
       }
     );
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+  } catch (err) {
+    const { message: detailedError, cause } = formatFetchError(err);
     console.error(
       '[API /api/n8n/create-booking] Failed to reach n8n webhook:',
-      errorMessage
+      targetWebhookUrl,
+      detailedError
     );
 
     return NextResponse.json(
       {
         success: false,
         status: 'bad_gateway',
-        message: `Failed to reach n8n webhook: ${errorMessage}`,
-        error: errorMessage,
-        webhookUrl: PRODUCTION_CREATE_BOOKING_WEBHOOK_URL,
+        message: `Failed to reach n8n webhook (${targetWebhookUrl}): ${detailedError}`,
+        error: detailedError,
+        cause,
+        webhookUrl: targetWebhookUrl,
       },
       {
         status: 502,
