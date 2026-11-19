@@ -571,22 +571,32 @@ function PaymentDrawer({ vm }: { vm: ShowroomViewModel }) {
         </button>
       </div>
 
-      <BookingSummaryList vm={vm} />
+      <div className="-mr-2 max-h-[430px] space-y-3 overflow-y-auto pr-2">
+        <BookingSummaryList vm={vm} />
 
-      <div className="mt-3 flex items-end justify-between rounded-2xl bg-[#F4F5F6] p-3.5">
-        <div>
-          <div className="text-[11px] text-[#6B7280]">{vm.t.totalEstimate}</div>
-          <div className="text-[22px] font-bold tracking-tight text-[#14171F]">
-            {formatIdr(vm.priceBreakdown.totalAmount)}
+        <div className="flex items-end justify-between rounded-2xl bg-[#F4F5F6] p-3.5">
+          <div>
+            <div className="text-[11px] text-[#6B7280]">{vm.t.totalEstimate}</div>
+            <div className="text-[22px] font-bold tracking-tight text-[#14171F]">
+              {formatIdr(vm.priceBreakdown.totalAmount)}
+            </div>
           </div>
+          <span className="rounded-full bg-[#D1FAE5] px-2.5 py-1 text-[11px] font-bold text-[#065F46]">
+            ≈ ${vm.priceBreakdown.approxUsd} USD
+          </span>
         </div>
-        <span className="rounded-full bg-[#D1FAE5] px-2.5 py-1 text-[11px] font-bold text-[#065F46]">
-          ≈ ${vm.priceBreakdown.approxUsd} USD
-        </span>
+
+        <div>
+          <div className="mb-2 text-[12px] font-semibold text-[#14171F]">
+            {vm.t.selectPaymentMethod}
+          </div>
+          <PaymentMethodList vm={vm} dense />
+        </div>
+
+        <SubmissionFeedback vm={vm} />
       </div>
 
-      <div className="mt-3 space-y-3">
-        <SubmissionFeedback vm={vm} />
+      <div className="mt-3 pt-3 border-t border-[#EEF0F2]">
         <PrimaryStepAction vm={vm} className="w-full" />
       </div>
     </div>
